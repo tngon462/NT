@@ -1,9 +1,5 @@
 // js/main.js
 
-// ===== TÀI KHOẢN MẶC ĐỊNH =====
-const ADMIN_ID = "admin";
-const ADMIN_PASS = "admin";
-
 // ===== STATE CHUNG =====
 const appState = {
   currentView: "overview",      // overview | rooms | costs | devices | settings | roomDetail
@@ -48,6 +44,8 @@ function saveAppState() {
   };
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+    // Nếu bật auto-sync cloud (Firebase) thì lên lịch đồng bộ (không làm gián đoạn offline)
+    try { window.scheduleAutoSync?.(); } catch (e) {}
   } catch (e) {
     console.error("Lỗi lưu appState:", e);
   }
@@ -71,14 +69,13 @@ function loadAppState() {
       };
     }
 
-    
     if (data.invoices) {
       appState.invoices = Array.isArray(data.invoices) ? data.invoices : [];
     } else {
       appState.invoices = [];
     }
 
-if (data.meters) {
+    if (data.meters) {
       appState.meters = {
         electricity: {
           lastReadings: {},
@@ -221,20 +218,63 @@ const menuSettings = document.getElementById("menu-settings");
 const menuInvoices = document.getElementById("menu-invoices");
 
 
-// ===== LOGIN LOGIC =====
-loginBtn.onclick = () => {
-  const id   = loginId.value.trim();
-  const pass = loginPass.value.trim();
+// ===== LOGIN (Firebase Email/Password) =====
+function showLogin() {
+  mainScreen.classList.add("hidden");
+  loginScreen.classList.remove("hidden");
+}
+function showMain() {
+  loginScreen.classList.add("hidden");
+  mainScreen.classList.remove("hidden");
+}
 
-  if (id === ADMIN_ID && pass === ADMIN_PASS) {
-    loginScreen.classList.add("hidden");
-    mainScreen.classList.remove("hidden");
-    loginError.innerText = "";
-    setView("overview");
-  } else {
-    loginError.innerText = "Sai tài khoản hoặc mật khẩu!";
+// Nếu Firebase chưa load (quên add script), báo lỗi rõ ràng
+function ensureFirebaseAuth() {
+  if (!window.fbAuth || !window.fbAuth.signInWithEmailAndPassword) {
+    throw new Error("Firebase chưa sẵn sàng. Kiểm tra đã thêm firebase-auth và firebase-init.js chưa?");
+  }
+  return window.fbAuth;
+}
+
+loginBtn.onclick = async () => {
+  const email = (loginId.value || "").trim();
+  const pass  = (loginPass.value || "").trim();
+  loginError.innerText = "";
+
+  if (!email || !pass) {
+    loginError.innerText = "Nhập email và mật khẩu!";
+    return;
+  }
+
+  try {
+    const auth = ensureFirebaseAuth();
+    await auth.signInWithEmailAndPassword(email, pass);
+    // UI sẽ được cập nhật bởi onAuthStateChanged bên dưới
+  } catch (e) {
+    loginError.innerText = e?.message || "Đăng nhập thất bại!";
   }
 };
+
+// Theo dõi trạng thái đăng nhập để tự vào app khi refresh
+try {
+  if (window.fbAuth && window.fbAuth.onAuthStateChanged) {
+    window.fbAuth.onAuthStateChanged(async (user) => {
+      if (user) {
+        showMain();
+        loginError.innerText = "";
+        // Không auto-load cloud để tránh ghi đè local ngoài ý muốn.
+        setView(appState.currentView || "overview");
+      } else {
+        showLogin();
+      }
+    });
+  } else {
+    // Chưa có Firebase: vẫn cho hiện login screen để sếp nhìn thấy lỗi
+    showLogin();
+  }
+} catch (e) {
+  showLogin();
+}
 
 
 // ===== MENU TOGGLE (ĐIỆN THOẠI) =====
@@ -244,7 +284,13 @@ menuToggle.onclick = () => {
 
 
 // ===== LOGOUT =====
-logoutBtn.onclick = () => {
+logoutBtn.onclick = async () => {
+  try {
+    if (window.fbAuth && window.fbAuth.signOut) await window.fbAuth.signOut();
+  } catch (e) {
+    console.warn("Logout Firebase lỗi:", e);
+  }
+
   mainScreen.classList.add("hidden");
   loginScreen.classList.remove("hidden");
   loginId.value = "";
