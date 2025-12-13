@@ -1,0 +1,24 @@
+/* css/room-checkout.css */
+
+.room-checkout-section {
+  background: white;
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin-bottom: 16px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+  font-size: 14px;
+}
+
+.room-checkout-btn {
+  border: none;
+  background: #dc2626;
+  color: white;
+  border-radius: 4px;
+  padding: 8px 14px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.room-checkout-btn:hover {
+  opacity: 0.9;
+}

@@ -1,0 +1,36 @@
+/* css/rooms.css */
+
+.room-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.room-card {
+  min-width: 60px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  text-align: center;
+  font-weight: 600;
+  cursor: pointer;
+  border: none;
+  font-size: 14px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+
+/* Phòng có người thuê: xanh */
+.room-card.room-occupied {
+  background: #2563eb;
+  color: white;
+}
+
+/* Phòng trống: xám */
+.room-card.room-empty {
+  background: #e5e7eb;
+  color: #374151;
+}
+
+.room-card:hover {
+  transform: translateY(-1px);
+}

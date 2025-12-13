@@ -1,0 +1,147 @@
+* {
+  box-sizing: border-box;
+  font-family: Arial, sans-serif;
+}
+
+body {
+  margin: 0;
+  height: 100vh;
+  background: #f3f4f6;
+}
+
+/* ===== LOGIN ===== */
+.login-screen {
+  height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #111827;
+}
+
+.login-box {
+  background: white;
+  padding: 30px;
+  width: 300px;
+  border-radius: 10px;
+  text-align: center;
+}
+
+.login-box h2 {
+  margin-bottom: 20px;
+}
+
+.login-box input {
+  width: 100%;
+  padding: 10px;
+  margin-bottom: 10px;
+}
+
+.login-box button {
+  width: 100%;
+  padding: 10px;
+  background: #2563eb;
+  color: white;
+  border: none;
+  border-radius: 5px;
+}
+
+.login-error {
+  color: red;
+  margin-top: 8px;
+  font-size: 13px;
+}
+
+/* ===== MAIN ===== */
+.hidden {
+  display: none;
+}
+
+.main-screen {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* HEADER */
+.header {
+  height: 60px;
+  background: #1e3a8a;
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 15px;
+}
+
+.title {
+  font-size: 20px;
+  font-weight: bold;
+}
+
+.menu-toggle {
+  display: none;
+  font-size: 24px;
+  background: none;
+  color: white;
+  border: none;
+}
+
+/* BODY */
+.main-body {
+  flex: 1;
+  display: flex;
+  position: relative;
+}
+
+.main-content {
+  flex: 1;
+  padding: 20px;
+}
+
+/* RIGHT MENU */
+.right-menu {
+  width: 200px;
+  background: #111827;
+  color: white;
+  display: flex;
+  flex-direction: column;
+  padding: 10px;
+}
+
+.menu-item {
+  padding: 12px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.menu-item:hover {
+  background: #374151;
+}
+
+.menu-item.active {
+  background: #2563eb;
+}
+
+.logout {
+  margin-top: auto;
+  background: #991b1b;
+}
+
+/* ===== RESPONSIVE (ĐIỆN THOẠI) ===== */
+@media (max-width: 768px) {
+  .menu-toggle {
+    display: block;
+  }
+
+  .right-menu {
+    position: absolute;
+    right: -220px;
+    top: 0;
+    height: 100%;
+    transition: 0.3s;
+  }
+
+  .right-menu.show {
+    right: 0;
+  }
+}

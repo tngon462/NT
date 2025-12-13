@@ -1,0 +1,169 @@
+/* CSS cho màn Chi tiết phòng */
+
+.room-detail-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.room-detail-header h3 {
+  margin: 0;
+}
+
+.room-basic-info {
+  background: white;
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 16px;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.08);
+  font-size: 14px;
+}
+
+/* Khối người thuê */
+
+.tenants-section {
+  background: white;
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin-bottom: 16px;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.08);
+}
+
+.tenants-section h4 {
+  margin-top: 0;
+  margin-bottom: 8px;
+}
+
+.tenant-form-row {
+  margin-bottom: 8px;
+}
+
+.tenant-form-row label {
+  display: block;
+  font-size: 13px;
+  margin-bottom: 2px;
+}
+
+.tenant-form-row input,
+.tenant-form-row textarea {
+  width: 100%;
+  max-width: 380px;
+  padding: 6px;
+  border-radius: 4px;
+  border: 1px solid #d1d5db;
+  font-size: 13px;
+}
+
+#add-tenant-btn {
+  border: none;
+  background: #2563eb;
+  color: white;
+  border-radius: 4px;
+  padding: 8px 14px;
+  cursor: pointer;
+  margin-top: 4px;
+}
+
+#add-tenant-btn:hover {
+  opacity: 0.9;
+}
+
+#tenant-add-msg {
+  margin-top: 6px;
+  font-size: 13px;
+}
+
+/* Danh sách người thuê */
+
+.tenant-list {
+  margin-top: 10px;
+  font-size: 13px;
+}
+
+.tenant-card {
+  border-top: 1px solid #e5e7eb;
+  padding-top: 8px;
+  margin-top: 8px;
+  display: flex;
+  gap: 10px;
+}
+
+.tenant-info {
+  flex: 1;
+}
+
+.tenant-info b {
+  font-size: 14px;
+}
+
+.tenant-id-images {
+  display: flex;
+  gap: 6px;
+}
+
+.tenant-id-images img {
+  width: 80px;
+  height: auto;
+  border-radius: 4px;
+  border: 1px solid #e5e7eb;
+  object-fit: cover;
+}
+
+.tenant-actions {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+}
+
+.remove-tenant-btn {
+  border: none;
+  background: #ef4444;
+  color: white;
+  border-radius: 4px;
+  padding: 4px 8px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.remove-tenant-btn:hover {
+  opacity: 0.9;
+}
+
+/* Nút tạo hóa đơn */
+
+.invoice-section {
+  background: white;
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin-bottom: 16px;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.08);
+  font-size: 14px;
+}
+
+#create-invoice-btn {
+  border: none;
+  background: #16a34a;
+  color: white;
+  border-radius: 4px;
+  padding: 8px 14px;
+  cursor: pointer;
+}
+
+#create-invoice-btn:hover {
+  opacity: 0.9;
+}
+
+.back-to-rooms-btn {
+  border: none;
+  background: #374151;
+  color: white;
+  border-radius: 4px;
+  padding: 6px 10px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.back-to-rooms-btn:hover {
+  opacity: 0.9;
+}
