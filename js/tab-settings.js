@@ -199,6 +199,24 @@ function renderSettings(mainContent, appState) {
       </p>
       <button id="export-excel-btn" style="padding:8px 14px;">📁 Xuất dữ liệu ra Excel</button>
     </div>
+    <div class="settings-section">
+  <h4>☁️ Đồng bộ Cloud (Firebase)</h4>
+  <p style="font-size:13px; color:#4b5563;">
+    App vẫn chạy offline bằng dữ liệu trên máy. Khi có mạng, sếp có thể đồng bộ lên cloud hoặc tải dữ liệu từ cloud về máy.
+  </p>
+
+  <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+    <button id="cloud-save-btn" style="padding:8px 14px;">⬆️ Đồng bộ lên Cloud</button>
+    <button id="cloud-load-btn" style="padding:8px 14px;">⬇️ Tải từ Cloud về</button>
+
+    <label style="font-size:13px; color:#374151; display:flex; gap:6px; align-items:center;">
+      <input type="checkbox" id="cloud-autosync-toggle">
+      Tự đồng bộ khi có thay đổi
+    </label>
+  </div>
+
+  <div id="cloud-msg" style="margin-top:8px; font-size:13px;"></div>
+</div>
   `;
 
   // ===== Helpers (Excel) =====
@@ -754,3 +772,53 @@ function renderSettings(mainContent, appState) {
 }
 
 window.renderSettings = renderSettings;
+
+  // ===== CLOUD SYNC =====
+  const cloudMsg = document.getElementById("cloud-msg");
+  const btnSave = document.getElementById("cloud-save-btn");
+  const btnLoad = document.getElementById("cloud-load-btn");
+  const autoToggle = document.getElementById("cloud-autosync-toggle");
+
+  function setCloudMsg(txt, ok = true) {
+    if (!cloudMsg) return;
+    cloudMsg.style.color = ok ? "#059669" : "#dc2626";
+    cloudMsg.innerText = txt || "";
+  }
+
+  if (autoToggle) {
+    autoToggle.onchange = () => {
+      window.setAutoSync?.(autoToggle.checked);
+      setCloudMsg(autoToggle.checked ? "Đã bật tự đồng bộ." : "Đã tắt tự đồng bộ.");
+    };
+  }
+
+  if (btnSave) {
+    btnSave.onclick = async () => {
+      try {
+        setCloudMsg("Đang đồng bộ lên cloud...");
+        await window.cloudSave();
+        setCloudMsg("✅ Đã đồng bộ lên cloud.");
+      } catch (e) {
+        setCloudMsg("❌ Đồng bộ thất bại: " + (e?.message || e), false);
+      }
+    };
+  }
+
+  if (btnLoad) {
+    btnLoad.onclick = async () => {
+      if (!confirm("Tải từ cloud sẽ ghi đè dữ liệu đang có trên máy. Tiếp tục?")) return;
+      try {
+        setCloudMsg("Đang tải dữ liệu từ cloud...");
+        const payload = await window.cloudLoad();
+        if (!payload) {
+          setCloudMsg("Cloud chưa có dữ liệu để tải.", false);
+          return;
+        }
+        window.loadAppState();
+        setView("overview");
+        setCloudMsg("✅ Đã tải dữ liệu từ cloud về máy.");
+      } catch (e) {
+        setCloudMsg("❌ Tải thất bại: " + (e?.message || e), false);
+      }
+    };
+  }
