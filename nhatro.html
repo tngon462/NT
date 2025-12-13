@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <title>Nhà Trọ Thiệp Mến</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <!-- CSS chung + CSS cho từng tab -->
+  <link rel="stylesheet" href="css/base.css">
+  <link rel="stylesheet" href="css/overview.css">
+  <link rel="stylesheet" href="css/rooms.css">
+  <link rel="stylesheet" href="css/settings.css">
+  <link rel="stylesheet" href="css/costs.css">
+  <link rel="stylesheet" href="css/devices.css">
+  <link rel="stylesheet" href="css/room-detail.css">
+  <link rel="stylesheet" href="css/room-checkout.css">
+</head>
+<body>
+
+  <!-- ================= LOGIN SCREEN ================= -->
+  <div id="login-screen" class="login-screen">
+    <div class="login-box">
+      <h2>ĐĂNG NHẬP</h2>
+      <input id="login-id" type="text" placeholder="Tài khoản">
+      <input id="login-pass" type="password" placeholder="Mật khẩu">
+      <button id="login-btn">ĐĂNG NHẬP</button>
+      <div id="login-error" class="login-error"></div>
+    </div>
+  </div>
+
+  <!-- ================= MAIN SCREEN ================= -->
+  <div id="main-screen" class="main-screen hidden">
+
+    <!-- HEADER -->
+    <div class="header">
+      <div class="title">NHÀ TRỌ THIỆP MẾN</div>
+      <button id="menu-toggle" class="menu-toggle">☰</button>
+    </div>
+
+    <!-- MAIN CONTENT -->
+    <div class="main-body">
+      <div id="main-content" class="main-content">
+        <!-- Nội dung từng tab sẽ render bằng JS -->
+      </div>
+
+      <!-- RIGHT MENU -->
+      <div id="right-menu" class="right-menu">
+        <div id="menu-overview" class="menu-item active">📊 Tổng quan</div>
+        <div id="menu-rooms" class="menu-item">🏠 Phòng</div>
+        <div id="menu-costs" class="menu-item">⚡ Chi phí</div>
+	<div id="menu-invoices" class="menu-item">  Hóa đơn</div>
+        <div id="menu-devices" class="menu-item">🧯 Thiết bị</div>
+        <div id="menu-settings" class="menu-item">⚙️ Cài đặt</div>
+        <div class="menu-item logout" id="logout-btn">🚪 Đăng xuất</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- JS cho từng tab + JS chính -->
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script src="js/tab-overview.js"></script>
+  <script src="js/tab-rooms.js"></script>
+  <script src="js/tab-settings.js"></script>
+  <script src="js/tab-costs.js"></script> 
+  <script src="js/tab-devices.js"></script>
+  <script src="js/tab-room-detail.js"></script>
+  <script src="js/tab-room-checkout.js"></script>
+  <script src="js/invoice.js"></script>
+  <script src="js/checkout.js"></script>
+ <script src="js/tab-invoices.js"></script>
+  <script src="js/main.js"></script>
+</body>
+</html>
