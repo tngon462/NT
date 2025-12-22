@@ -917,15 +917,6 @@ function renderSettings(mainContent, appState) {
       }
     };
   }
-      // ===== kết thúc xử lý import tenants =====
-    } catch (e) {
-      console.error(e);
-      setMsg(importTenantsMsg, false, "Lỗi đọc file người thuê. Kiểm tra lại định dạng và tên cột.");
-    }
-  }
-
-  if (importRoomsBtn) importRoomsBtn.onclick = handleImportRooms;
-  if (importTenantsBtn) importTenantsBtn.onclick = handleImportTenants;
 
 } // ===== KẾT THÚC renderSettings =====
 
