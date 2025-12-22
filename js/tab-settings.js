@@ -815,6 +815,68 @@ function renderSettings(mainContent, appState) {
     }
   } catch {}
 
+    // ===== Auto prompt when back online =====
+  const ONLINE_PROMPT_KEY = "nhatro_cloud_online_prompt_at_v1"; // ISO time
+  const ONLINE_PROMPT_COOLDOWN_MS = 30 * 1000; // 30s chống spam
+
+  function canPromptOnline() {
+    try {
+      const last = lsGet(ONLINE_PROMPT_KEY, "");
+      if (!last) return true;
+      const t = Date.parse(last);
+      if (!isFinite(t)) return true;
+      return (Date.now() - t) > ONLINE_PROMPT_COOLDOWN_MS;
+    } catch {
+      return true;
+    }
+  }
+
+  function markPrompted() {
+    try { lsSet(ONLINE_PROMPT_KEY, new Date().toISOString()); } catch {}
+  }
+
+  async function promptAndSyncIfNeeded() {
+    if (!navigator.onLine) return;
+    if (!window.getAutoSync?.()) return; // chỉ hỏi khi autosync đang bật
+    const pending = window.getPendingChanges?.() || [];
+    if (!pending.length) return;
+
+    if (!canPromptOnline()) return;
+    markPrompted();
+
+    // gộp summary từ pending (hiển thị tối đa 10 mục gần nhất)
+    const last = pending.slice(-10);
+    let msg = `Có ${pending.length} thay đổi offline chưa đồng bộ.\n\n`;
+    last.forEach((p, i) => {
+      const time = (p.at || "").replace("T", " ").replace("Z", "");
+      const sum = Array.isArray(p.summary) && p.summary.length ? p.summary.join(", ") : "(không rõ mục thay đổi)";
+      msg += `${i + 1}) ${time}\n- ${sum}\n\n`;
+    });
+    if (pending.length > 10) msg += `... (còn ${pending.length - 10} mục nữa)\n\n`;
+    msg += "Có cập nhật tất cả lên cloud ngay bây giờ không?";
+
+    const ok = confirm(msg);
+    if (!ok) return;
+
+    try {
+      await window.cloudSave(); // thành công sẽ tự clear pending (đã làm ở core)
+      // thông báo nhẹ (không bắt buộc)
+      try { window.dispatchEvent(new CustomEvent("nhatro:cloudsynced")); } catch {}
+    } catch (e) {
+      // nếu fail thì pending đã được ghi thêm trong cloudSave()
+      // không alert spam, user có thể bấm đồng bộ thủ công ở tab Cài đặt
+    }
+  }
+
+  // Khi vừa có mạng lại -> hỏi xác nhận
+  window.addEventListener("online", () => {
+    // đợi 0.5s cho wifi ổn định
+    setTimeout(() => { promptAndSyncIfNeeded(); }, 500);
+  });
+
+  // Nếu đang online ngay lúc load app và có pending -> cũng hỏi 1 lần
+  setTimeout(() => { promptAndSyncIfNeeded(); }, 1200);
+  
   if (btnSave) {
     btnSave.onclick = async () => {
       try {
