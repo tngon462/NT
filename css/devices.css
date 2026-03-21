@@ -17,6 +17,10 @@
 .devices-section select {
   border: 1px solid #d1d5db;
   border-radius: 4px;
+
+   color: #111827;
+  background: #ffffff;
+  
 }
 
 .devices-section button {
