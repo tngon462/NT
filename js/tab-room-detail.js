@@ -2,6 +2,7 @@
 // Màn chi tiết phòng: người thuê, thiết bị, chi phí, điện/nước, trả phòng
 // V2: Cho phép thêm nhiều thiết bị giống nhau theo số lượng (deviceAssignments lưu theo "đơn vị" từng cái)
 // + THÊM TIỀN CỌC: lưu riêng theo phòng, dùng cho hóa đơn và trả phòng
+// V3: Cho phép sửa tay "Số trước" điện/nước khi chốt chỉ số
 
 function renderRoomDetail(mainContent, appState, roomNumber) {
   const room = (appState.rooms || []).find((r) => String(r.number) === String(roomNumber));
@@ -562,8 +563,11 @@ function renderRoomDetail(mainContent, appState, roomNumber) {
             <input id="elec-date-room" type="date" value="${defaultDate}" style="padding:4px; margin-bottom:4px;">
             <br>
             <label>Số trước:</label><br>
-            <input type="number" value="${getAutoPrevReading("electricity", roomNumber)}" disabled
-              style="padding:4px; margin-bottom:4px; width:120px; background:#f3f4f6;">
+            <input
+              id="elec-prev-room"
+              type="number"
+              value="${getAutoPrevReading("electricity", roomNumber)}"
+              style="padding:4px; margin-bottom:4px; width:120px;">
             <br>
             <label>Số hiện tại:</label><br>
             <input id="elec-current-room" type="number" style="padding:4px; margin-bottom:6px; width:120px;">
@@ -598,8 +602,11 @@ function renderRoomDetail(mainContent, appState, roomNumber) {
             <input id="water-date-room" type="date" value="${defaultDate}" style="padding:4px; margin-bottom:4px;">
             <br>
             <label>Số trước:</label><br>
-            <input type="number" value="${getAutoPrevReading("water", roomNumber)}" disabled
-              style="padding:4px; margin-bottom:4px; width:120px; background:#f3f4f6;">
+            <input
+              id="water-prev-room"
+              type="number"
+              value="${getAutoPrevReading("water", roomNumber)}"
+              style="padding:4px; margin-bottom:4px; width:120px;">
             <br>
             <label>Số hiện tại:</label><br>
             <input id="water-current-room" type="number" style="padding:4px; margin-bottom:6px; width:120px;">
@@ -781,10 +788,10 @@ function renderRoomDetail(mainContent, appState, roomNumber) {
       };
 
       if ((room.tenants || []).length === 0 && !room.moveInDate) {
-        const now = new Date();
-        const y = now.getFullYear();
-        const m = String(now.getMonth() + 1).padStart(2, "0");
-        const d = String(now.getDate()).padStart(2, "0");
+        const now2 = new Date();
+        const y = now2.getFullYear();
+        const m = String(now2.getMonth() + 1).padStart(2, "0");
+        const d = String(now2.getDate()).padStart(2, "0");
         room.moveInDate = `${y}-${m}-${d}`;
       }
 
@@ -798,10 +805,16 @@ function renderRoomDetail(mainContent, appState, roomNumber) {
 
       if (nameInput) nameInput.value = "";
       if (genderSelect) genderSelect.value = "";
-      if (genderCustom) { genderCustom.value = ""; genderCustom.style.display = "none"; }
+      if (genderCustom) {
+        genderCustom.value = "";
+        genderCustom.style.display = "none";
+      }
       if (dobInput) dobInput.value = "";
       if (relSelect) relSelect.value = "";
-      if (relCustom) { relCustom.value = ""; relCustom.style.display = "none"; }
+      if (relCustom) {
+        relCustom.value = "";
+        relCustom.style.display = "none";
+      }
       if (ownerCheckbox) ownerCheckbox.checked = false;
       if (addressInput) addressInput.value = "";
       if (hometownInput) hometownInput.value = "";
@@ -1035,6 +1048,7 @@ function renderRoomDetail(mainContent, appState, roomNumber) {
 
   const elecPeriodInput = document.getElementById("elec-period-room");
   const elecDateInput = document.getElementById("elec-date-room");
+  const elecPrevInput = document.getElementById("elec-prev-room");
   const elecCurrentInput = document.getElementById("elec-current-room");
   const elecSaveBtn = document.getElementById("save-elec-room-btn");
 
@@ -1042,14 +1056,27 @@ function renderRoomDetail(mainContent, appState, roomNumber) {
     elecSaveBtn.onclick = () => {
       const period = elecPeriodInput?.value || defaultMonth;
       const date = elecDateInput?.value || defaultDate;
+      const prevStr = (elecPrevInput?.value || "").trim();
       const currStr = (elecCurrentInput?.value || "").trim();
 
       const meter = appState.meters.electricity;
-      const prev = getAutoPrevReading("electricity", roomNumber);
+
+      if (prevStr === "") {
+        roomMeterMsg.style.color = "#b91c1c";
+        roomMeterMsg.innerText = "Chưa nhập số điện cũ.";
+        return;
+      }
 
       if (!currStr) {
         roomMeterMsg.style.color = "#b91c1c";
         roomMeterMsg.innerText = "Chưa nhập số điện hiện tại.";
+        return;
+      }
+
+      const prev = Number(prevStr);
+      if (isNaN(prev) || prev < 0) {
+        roomMeterMsg.style.color = "#b91c1c";
+        roomMeterMsg.innerText = "Số điện cũ không hợp lệ.";
         return;
       }
 
@@ -1085,6 +1112,7 @@ function renderRoomDetail(mainContent, appState, roomNumber) {
 
   const waterPeriodInput = document.getElementById("water-period-room");
   const waterDateInput = document.getElementById("water-date-room");
+  const waterPrevInput = document.getElementById("water-prev-room");
   const waterCurrentInput = document.getElementById("water-current-room");
   const waterSaveBtn = document.getElementById("save-water-room-btn");
 
@@ -1092,14 +1120,27 @@ function renderRoomDetail(mainContent, appState, roomNumber) {
     waterSaveBtn.onclick = () => {
       const period = waterPeriodInput?.value || defaultMonth;
       const date = waterDateInput?.value || defaultDate;
+      const prevStr = (waterPrevInput?.value || "").trim();
       const currStr = (waterCurrentInput?.value || "").trim();
 
       const meter = appState.meters.water;
-      const prev = getAutoPrevReading("water", roomNumber);
+
+      if (prevStr === "") {
+        roomMeterMsg.style.color = "#b91c1c";
+        roomMeterMsg.innerText = "Chưa nhập số nước cũ.";
+        return;
+      }
 
       if (!currStr) {
         roomMeterMsg.style.color = "#b91c1c";
         roomMeterMsg.innerText = "Chưa nhập số nước hiện tại.";
+        return;
+      }
+
+      const prev = Number(prevStr);
+      if (isNaN(prev) || prev < 0) {
+        roomMeterMsg.style.color = "#b91c1c";
+        roomMeterMsg.innerText = "Số nước cũ không hợp lệ.";
         return;
       }
 
