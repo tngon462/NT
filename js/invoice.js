@@ -1,12 +1,15 @@
 // js/invoice.js
-// Tạo hóa đơn tháng cho 1 phòng (A5 dọc) + lưu vào Tab Hóa đơn
-// FIX: lấy số điện/nước theo period hoặc date, ưu tiên đúng kỳ hóa đơn
+// Tạo hóa đơn tháng cho 1 phòng
+// FIX CHUẨN:
+// 1) Ưu tiên lấy điện/nước theo `period`
+// 2) Nếu không có period thì mới fallback theo `date`
+// 3) Lưu cả oldReading/newReading/used vào invoice để tab hóa đơn đọc lại đúng
 
 (function () {
   const BRAND = {
     title: "PHIẾU THU TIỀN PHÒNG TRỌ THIỆP MẾN",
     phone: "0963 954 006",
-    bankLine: "Cop-opBank: 2700 300 512 666 888/ NGUYỄN THỊ MẾN",
+    bankLine: "Cop-opBank: 2700 300 512 666 888 / NGUYỄN THỊ MẾN",
   };
 
   function todayISO() {
@@ -70,9 +73,15 @@
     return Number.isNaN(x) ? "0" : x.toLocaleString("vi-VN");
   }
 
+  function safeNum(v) {
+    const n = Number(v);
+    return Number.isNaN(n) ? 0 : n;
+  }
+
   function ensureState(appState) {
     if (!Array.isArray(appState.rooms)) appState.rooms = [];
     if (!Array.isArray(appState.costs)) appState.costs = [];
+    if (!Array.isArray(appState.invoices)) appState.invoices = [];
 
     if (!appState.costUnitPrices) {
       appState.costUnitPrices = {
@@ -99,8 +108,6 @@
     if (!appState.meters.water) {
       appState.meters.water = { lastReadings: {}, history: [] };
     }
-
-    if (!Array.isArray(appState.invoices)) appState.invoices = [];
   }
 
   function getRoom(appState, roomNumber) {
@@ -127,8 +134,8 @@
 
     const keywords =
       type === "electricity"
-        ? ["dien", "tien dien", "dien sinh hoat", "điện", "tiền điện"]
-        : ["nuoc", "tien nuoc", "nuoc sinh hoat", "nước", "tiền nước"];
+        ? ["dien", "tien dien", "điện", "tiền điện"]
+        : ["nuoc", "tien nuoc", "nước", "tiền nước"];
 
     const foundCost =
       costs.find((c) => {
@@ -154,11 +161,6 @@
     return Array.isArray(meter.history) ? meter.history : [];
   }
 
-  function safeNum(v) {
-    const n = Number(v);
-    return Number.isNaN(n) ? 0 : n;
-  }
-
   function normalizeMeterRecord(h) {
     return {
       roomNumber: String(h?.roomNumber || ""),
@@ -182,33 +184,31 @@
 
   function sortMeterRecordsAsc(records) {
     return records.slice().sort((a, b) => {
-      const ka = `${a.period || ""}|${a.date || ""}|${a.savedAt || ""}`;
-      const kb = `${b.period || ""}|${b.date || ""}|${b.savedAt || ""}`;
+      const ka = `${a.period}|${a.date}|${a.savedAt}`;
+      const kb = `${b.period}|${b.date}|${b.savedAt}`;
       return ka.localeCompare(kb);
     });
   }
 
-  function getLatestRecordByPeriod(appState, type, roomNumber, ym) {
+  function latestReadingByPeriod(appState, type, roomNumber, ym) {
     const records = getRoomMeterRecords(appState, type, roomNumber)
-      .filter((h) => String(h.period || "") === String(ym));
+      .filter((h) => String(h.period) === String(ym));
 
     if (!records.length) return null;
-
     const sorted = sortMeterRecordsAsc(records);
     return sorted[sorted.length - 1];
   }
 
-  function getLatestRecordUpToDate(appState, type, roomNumber, toDate) {
+  function latestReadingUpToDate(appState, type, roomNumber, toDate) {
     const records = getRoomMeterRecords(appState, type, roomNumber)
       .filter((h) => h.date && h.date <= toDate);
 
     if (!records.length) return null;
-
     const sorted = sortMeterRecordsAsc(records);
     return sorted[sorted.length - 1];
   }
 
-  function getPreviousRecordBeforePeriod(appState, type, roomNumber, ym) {
+  function prevReadingBeforeMonth(appState, type, roomNumber, ym) {
     const records = getRoomMeterRecords(appState, type, roomNumber)
       .filter((h) => {
         if (h.period) return h.period < ym;
@@ -216,24 +216,21 @@
         return false;
       });
 
-    if (!records.length) return null;
-
+    if (!records.length) return 0;
     const sorted = sortMeterRecordsAsc(records);
-    return sorted[sorted.length - 1];
+    return Number(sorted[sorted.length - 1].curr || 0);
   }
 
   function getMeterLineData(appState, type, roomNumber, ym, toDate) {
-    // Ưu tiên:
-    // 1) bản ghi đúng kỳ period = ym
-    // 2) bản ghi mới nhất có date <= toDate
-    // 3) fallback về record trước đó để có số cũ/số mới bằng nhau
-    const recByPeriod = getLatestRecordByPeriod(appState, type, roomNumber, ym);
-    const recByDate = getLatestRecordUpToDate(appState, type, roomNumber, toDate);
+    // FIX QUAN TRỌNG:
+    // Ưu tiên đúng kỳ period trước
+    const recByPeriod = latestReadingByPeriod(appState, type, roomNumber, ym);
+    const recByDate = latestReadingUpToDate(appState, type, roomNumber, toDate);
     const rec = recByPeriod || recByDate;
 
     if (rec) {
-      const prev = safeNum(rec.prev);
-      const curr = safeNum(rec.curr);
+      const prev = Number(rec.prev || 0);
+      const curr = Number(rec.curr || 0);
       const used =
         rec.used != null && !Number.isNaN(Number(rec.used))
           ? Number(rec.used)
@@ -250,14 +247,12 @@
       };
     }
 
-    const prevRec = getPreviousRecordBeforePeriod(appState, type, roomNumber, ym);
-    const fallback = prevRec ? safeNum(prevRec.curr) : 0;
-
+    const fallbackPrev = prevReadingBeforeMonth(appState, type, roomNumber, ym);
     return {
-      prev: fallback,
-      curr: fallback,
+      prev: fallbackPrev,
+      curr: fallbackPrev,
       used: 0,
-      date: prevRec?.date || "",
+      date: "",
       period: ym,
       hasData: false,
       source: "none",
@@ -266,7 +261,6 @@
 
   function calcRentLine(room, fromDate, toDate) {
     const priceMonth = Number(room.price || 0);
-
     if (!priceMonth) {
       return {
         name: "Tiền phòng",
@@ -371,15 +365,18 @@
 
       lines.push({
         name: displayName,
+        label: displayName,
+        type,
         unitPrice: Number(cfg.price || 0),
         qty: Number(meter.used || 0),
+        usage: Number(meter.used || 0),
         unit: cfg.unit || (type === "electricity" ? "kWh" : "m³"),
         total,
+        amount: total,
         note:
           `Số cũ: ${meter.prev} → Số mới: ${meter.curr}` +
           (meter.date ? `\nNgày chốt: ${meter.date}` : "") +
           (meter.period ? `\nKỳ: ${meter.period}` : ""),
-        meterType: type,
         oldReading: meter.prev,
         newReading: meter.curr,
         used: meter.used,
@@ -426,7 +423,7 @@
   }
 
   function buildPrintA5Html({ title, room, fromDate, toDate, tenantName, lines }) {
-    const sum = lines.reduce((a, l) => a + Number(l.total || 0), 0);
+    const sum = lines.reduce((a, l) => a + Number(l.total || l.amount || 0), 0);
 
     const rows = lines
       .map((l, i) => {
@@ -434,13 +431,13 @@
           <tr>
             <td class="c-stt">${i + 1}</td>
             <td class="c-name">
-              <div class="name">${escapeHtml(l.name)}</div>
+              <div class="name">${escapeHtml(l.name || l.label || "")}</div>
               ${l.note ? `<div class="note">${escapeHtml(l.note)}</div>` : ""}
             </td>
             <td class="c-unitprice">${fmtMoney(l.unitPrice)}</td>
             <td class="c-qty">${fmtMoney(l.qty)}</td>
             <td class="c-unit">${escapeHtml(l.unit || "")}</td>
-            <td class="c-total">${fmtMoney(l.total)}</td>
+            <td class="c-total">${fmtMoney(l.total || l.amount || 0)}</td>
           </tr>
         `;
       })
@@ -458,7 +455,7 @@
     .toolbar { padding: 8px; border-bottom: 1px solid #ddd; display:flex; gap:8px; align-items:center; }
     .toolbar button { padding: 6px 10px; font-size: 12px; cursor:pointer; }
     .header { text-align:center; margin-top: 4px; }
-    .title { font-size: 15px; font-weight: 900; letter-spacing: .2px; }
+    .title { font-size: 15px; font-weight: 900; }
     .sub { margin-top: 6px; font-size: 11px; line-height: 1.3; }
     .meta { margin-top: 10px; font-size: 12px; line-height: 1.4; }
     .tbl { width:100%; border-collapse:collapse; margin-top:10px; }
@@ -472,10 +469,6 @@
     .sum-row { display:flex; justify-content:space-between; border:1px solid #333; padding:6px; }
     .sum-row .label { font-weight:900; }
     .sum-row .value { font-weight:900; font-size:13px; }
-    .sign { display:flex; justify-content:space-between; margin-top:16px; }
-    .sig-col { width:45%; text-align:center; }
-    .sig-title { font-weight:900; margin-bottom:28px; }
-    .sig-line { border-top:1px solid #333; height:1px; }
     @media print { .toolbar { display:none; } }
   </style>
 </head>
@@ -483,7 +476,6 @@
   <div class="toolbar">
     <button onclick="window.print()">🖨 In</button>
     <button onclick="window.close()">✖ Đóng</button>
-    <span style="font-size:12px;color:#555;">A5 dọc</span>
   </div>
 
   <div class="header">
@@ -520,17 +512,6 @@
       <div class="value">${fmtMoney(sum)} đ</div>
     </div>
   </div>
-
-  <div class="sign">
-    <div class="sig-col">
-      <div class="sig-title">Người nộp</div>
-      <div class="sig-line"></div>
-    </div>
-    <div class="sig-col">
-      <div class="sig-title">Người thu</div>
-      <div class="sig-line"></div>
-    </div>
-  </div>
 </body>
 </html>
     `.trim();
@@ -555,7 +536,7 @@
     printHtml,
     metaType = "monthly",
   }) {
-    const totalAmount = lines.reduce((a, l) => a + Number(l.total || 0), 0);
+    const totalAmount = lines.reduce((a, l) => a + Number(l.total || l.amount || 0), 0);
     const invoiceDate = toDate || todayISO();
 
     const invoice = {
@@ -567,14 +548,13 @@
       periodTo: toDate,
       title,
       lines,
-      items: lines, // thêm để tương thích tab-invoices cũ/new
+      items: lines,
       totalAmount,
       total: totalAmount,
       printHtml,
       status: "unpaid",
       missingAmount: 0,
       deleted: false,
-      isDeleted: false,
       meta: {
         type: metaType,
       },
@@ -606,7 +586,6 @@
     const tenantName = getFirstTenantName(room);
 
     const now = new Date();
-    const thisYM = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
     const prev = new Date(now.getFullYear(), now.getMonth() - 1, 1);
     const prevYM = `${prev.getFullYear()}-${String(prev.getMonth() + 1).padStart(2, "0")}`;
 
@@ -645,7 +624,6 @@
       </div>
 
       <div id="inv-msg" style="margin-top:10px; font-size:12px;"></div>
-
       <div id="inv-preview-box" style="margin-top:12px; border:1px solid #e5e7eb; border-radius:10px; padding:12px; max-height:50vh; overflow:auto;"></div>
     `);
 
@@ -663,8 +641,8 @@
     if (closeBtn) closeBtn.onclick = close;
 
     function buildDraft() {
-      const fromDate = toISO10(fromInput.value) || firstDayOfMonth(thisYM);
-      const toDate = toISO10(toInput.value) || lastDayOfMonth(thisYM);
+      const fromDate = toISO10(fromInput.value) || firstDayOfMonth(prevYM);
+      const toDate = toISO10(toInput.value) || lastDayOfMonth(prevYM);
       const tenantNameVal = (tenantInput.value || "").trim();
       const titleVal =
         (titleInput.value || "").trim() ||
@@ -693,7 +671,7 @@
 
     function renderPreview() {
       const draft = buildDraft();
-      const total = draft.lines.reduce((a, l) => a + Number(l.total || 0), 0);
+      const total = draft.lines.reduce((a, l) => a + Number(l.total || l.amount || 0), 0);
 
       previewBox.innerHTML = `
         <div style="font-weight:800; margin-bottom:8px;">${escapeHtml(draft.title)}</div>
@@ -717,13 +695,13 @@
                 (l) => `
                   <tr>
                     <td style="padding:6px; border:1px solid #e5e7eb;">
-                      <div><b>${escapeHtml(l.name)}</b></div>
+                      <div><b>${escapeHtml(l.name || l.label || "")}</b></div>
                       ${l.note ? `<div style="font-size:11px; color:#6b7280; white-space:pre-line;">${escapeHtml(l.note)}</div>` : ""}
                     </td>
                     <td style="padding:6px; border:1px solid #e5e7eb; text-align:right;">${fmtMoney(l.unitPrice)}</td>
                     <td style="padding:6px; border:1px solid #e5e7eb; text-align:right;">${fmtMoney(l.qty)}</td>
                     <td style="padding:6px; border:1px solid #e5e7eb;">${escapeHtml(l.unit || "")}</td>
-                    <td style="padding:6px; border:1px solid #e5e7eb; text-align:right;"><b>${fmtMoney(l.total)}</b></td>
+                    <td style="padding:6px; border:1px solid #e5e7eb; text-align:right;"><b>${fmtMoney(l.total || l.amount || 0)}</b></td>
                   </tr>
                 `
               )
