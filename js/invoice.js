@@ -1,5 +1,6 @@
 // js/invoice.js
 // Tạo hóa đơn tháng cho 1 phòng (A5 dọc) + lưu vào Tab Hóa đơn
+
 (function () {
   const BRAND = {
     title: "PHIẾU THU TIỀN PHÒNG TRỌ THIỆP MẾN",
@@ -7,7 +8,6 @@
     bankLine: "Cop-opBank: 2700 300 512 666 888/ NGUYỄN THỊ MẾN",
   };
 
-  // ===== helpers =====
   function todayISO() {
     const d = new Date();
     const y = d.getFullYear();
@@ -66,7 +66,7 @@
 
   function fmtMoney(n) {
     const x = Number(n || 0);
-    return Number.isNaN(x) ? "0" : x.toLocaleString();
+    return Number.isNaN(x) ? "0" : x.toLocaleString("vi-VN");
   }
 
   function ensureState(appState) {
@@ -78,11 +78,23 @@
         water: { price: 0, unit: "m³" },
       };
     }
+    if (!appState.costUnitPrices.electricity) {
+      appState.costUnitPrices.electricity = { price: 0, unit: "kWh" };
+    }
+    if (!appState.costUnitPrices.water) {
+      appState.costUnitPrices.water = { price: 0, unit: "m³" };
+    }
     if (!appState.meters) {
       appState.meters = {
         electricity: { lastReadings: {}, history: [] },
         water: { lastReadings: {}, history: [] },
       };
+    }
+    if (!appState.meters.electricity) {
+      appState.meters.electricity = { lastReadings: {}, history: [] };
+    }
+    if (!appState.meters.water) {
+      appState.meters.water = { lastReadings: {}, history: [] };
     }
     if (!Array.isArray(appState.invoices)) appState.invoices = [];
   }
@@ -93,7 +105,8 @@
 
   function getFirstTenantName(room) {
     if (!room || !Array.isArray(room.tenants) || room.tenants.length === 0) return "";
-    return room.tenants[0]?.fullName || "";
+    const owner = room.tenants.find((t) => t.isOwner);
+    return owner?.fullName || room.tenants[0]?.fullName || "";
   }
 
   function normalizeText(v) {
@@ -104,7 +117,6 @@
       .trim();
   }
 
-  // ===== lấy đơn giá điện / nước từ hệ thống =====
   function getUtilityConfig(appState, type) {
     const costs = Array.isArray(appState.costs) ? appState.costs : [];
     const fromUnitPrices = appState.costUnitPrices?.[type] || {};
@@ -133,7 +145,6 @@
     return { price, unit };
   }
 
-  // ===== meters calc =====
   function getMeterHistory(appState, type) {
     const meter = (appState.meters && appState.meters[type]) || {};
     return Array.isArray(meter.history) ? meter.history : [];
@@ -142,6 +153,7 @@
   function latestReadingInMonth(appState, type, roomNumber, ym) {
     const hist = getMeterHistory(appState, type);
     let best = null;
+
     for (let i = hist.length - 1; i >= 0; i--) {
       const h = hist[i];
       if (String(h.roomNumber) !== String(roomNumber)) continue;
@@ -150,12 +162,14 @@
       best = h;
       break;
     }
-    return best; // {prev,curr,used,date,period}
+
+    return best;
   }
 
   function latestReadingUpToDate(appState, type, roomNumber, toDate) {
     const hist = getMeterHistory(appState, type);
     let best = null;
+
     for (let i = hist.length - 1; i >= 0; i--) {
       const h = hist[i];
       if (String(h.roomNumber) !== String(roomNumber)) continue;
@@ -164,25 +178,27 @@
       best = h;
       break;
     }
+
     return best;
   }
 
   function prevReadingBeforeMonth(appState, type, roomNumber, ym) {
     const start = firstDayOfMonth(ym);
     const hist = getMeterHistory(appState, type);
+
     for (let i = hist.length - 1; i >= 0; i--) {
       const h = hist[i];
       if (String(h.roomNumber) !== String(roomNumber)) continue;
       if (!h.date) continue;
       if (h.date < start) return Number(h.curr || 0);
     }
+
     return 0;
   }
 
   function getMeterLineData(appState, type, roomNumber, ym, toDate) {
     const recInMonth = latestReadingInMonth(appState, type, roomNumber, ym);
     const recAny = latestReadingUpToDate(appState, type, roomNumber, toDate);
-
     const rec = recInMonth || recAny;
 
     if (rec) {
@@ -216,7 +232,6 @@
     };
   }
 
-  // ===== lines =====
   function calcRentLine(room, fromDate, toDate) {
     const priceMonth = Number(room.price || 0);
     if (!priceMonth) {
@@ -312,7 +327,37 @@
     return lines;
   }
 
-  // ===== Modal =====
+  function buildUtilityLines(appState, roomNumber, ym, toDate) {
+    const lines = [];
+
+    ["electricity", "water"].forEach((type) => {
+      const cfg = getUtilityConfig(appState, type);
+      const meter = getMeterLineData(appState, type, roomNumber, ym, toDate);
+
+      const displayName = type === "electricity" ? "Tiền điện" : "Tiền nước";
+      const total = Number(cfg.price || 0) * Number(meter.used || 0);
+
+      lines.push({
+        name: displayName,
+        unitPrice: Number(cfg.price || 0),
+        qty: Number(meter.used || 0),
+        unit: cfg.unit || (type === "electricity" ? "kWh" : "m³"),
+        total,
+        note: `Số cũ: ${meter.prev} → Số mới: ${meter.curr}${
+          meter.date ? `\nNgày chốt: ${meter.date}` : ""
+        }`,
+        meterType: type,
+        oldReading: meter.prev,
+        newReading: meter.curr,
+        used: meter.used,
+        meterDate: meter.date || "",
+        meterPeriod: meter.period || ym,
+      });
+    });
+
+    return lines;
+  }
+
   function openModal(html) {
     const overlay = document.createElement("div");
     overlay.style.position = "fixed";
@@ -330,7 +375,7 @@
     document.body.appendChild(overlay);
 
     function close() {
-      document.body.removeChild(overlay);
+      if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
       document.removeEventListener("keydown", onKey);
     }
 
@@ -347,7 +392,6 @@
     return { close, overlay };
   }
 
-  // ===== Print A5 =====
   function buildPrintA5Html({ title, room, fromDate, toDate, tenantName, lines }) {
     const sum = lines.reduce((a, l) => a + Number(l.total || 0), 0);
 
@@ -467,7 +511,58 @@
     w.document.close();
   }
 
-  // ===== UI =====
+  function saveInvoiceToState({
+    appState,
+    room,
+    tenantName,
+    fromDate,
+    toDate,
+    lines,
+    title,
+    printHtml,
+    metaType = "monthly",
+  }) {
+    const totalAmount = lines.reduce((a, l) => a + Number(l.total || 0), 0);
+    const invoiceDate = toDate || todayISO();
+
+    const invoice = {
+      roomNumber: room.number,
+      tenantName,
+      issueDate: todayISO(),
+      invoiceDate,
+      periodFrom: fromDate,
+      periodTo: toDate,
+      title,
+      lines,
+      totalAmount,
+      total: totalAmount, // giữ thêm cho file cũ đang đọc inv.total
+      printHtml,
+      status: "unpaid",
+      missingAmount: 0,
+      deleted: false,
+      meta: {
+        type: metaType,
+      },
+    };
+
+    if (typeof window.addInvoice === "function") {
+      return window.addInvoice(invoice);
+    }
+
+    // fallback nếu thiếu addInvoice
+    if (!Array.isArray(appState.invoices)) appState.invoices = [];
+    invoice.id = `inv_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+    appState.invoices.unshift(invoice);
+    if (window.saveAppState) window.saveAppState();
+    return invoice;
+  }
+
+  function buildInvoiceLines(room, appState, fromDate, toDate) {
+    const baseLines = buildBaseLines(room, appState, fromDate, toDate);
+    const utilityLines = buildUtilityLines(appState, room.number, ymOf(toDate), toDate);
+    return [...baseLines, ...utilityLines];
+  }
+
   function openInvoiceForRoom(roomNumber, appState) {
     ensureState(appState);
 
@@ -484,269 +579,209 @@
     const { close } = openModal(`
       <div style="display:flex; justify-content:space-between; align-items:center; gap:10px;">
         <h3 style="margin:0;">🧾 Tạo hóa đơn phòng ${escapeHtml(room.number)}</h3>
-        <button id="iv-close" style="padding:6px 10px;">✖ Đóng</button>
+        <button id="inv-close-btn" style="padding:6px 10px;">✖ Đóng</button>
       </div>
 
-      <div style="margin-top:10px; display:grid; gap:12px;">
-        <section style="border:1px solid #e5e7eb; border-radius:12px; padding:10px;">
-          <div style="font-weight:900; margin-bottom:6px;">Chọn kỳ hóa đơn</div>
-          <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
-            <label><input type="radio" name="iv-period" value="prev" checked> Tháng trước (${escapeHtml(prevYM)})</label>
-            <label><input type="radio" name="iv-period" value="this"> Tháng này (${escapeHtml(thisYM)})</label>
-            <label><input type="radio" name="iv-period" value="custom"> Khác</label>
-            <input id="iv-custom-ym" type="month" value="${escapeHtml(thisYM)}" style="padding:6px; display:none;">
-          </div>
-          <div style="margin-top:8px; font-size:12px; color:#6b7280;">
-            Gợi ý: muốn “lẻ ngày” thì sửa <b>từ/đến</b> ở bước tiếp theo trước khi xác nhận.
-          </div>
-        </section>
+      <div style="margin-top:10px; display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:12px;">
+        <div>
+          <label style="font-size:13px;">Từ ngày</label><br>
+          <input id="inv-from-date" type="date" value="${firstDayOfMonth(prevYM)}" style="padding:8px; width:100%;">
+        </div>
 
-        <section style="border:1px solid #e5e7eb; border-radius:12px; padding:10px;">
-          <div style="font-weight:900; margin-bottom:6px;">Khoảng thời gian (có thể sửa tay)</div>
-          <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
-            <div>
-              <div style="font-size:12px; color:#6b7280;">Từ</div>
-              <input id="iv-from" type="date" style="padding:8px; width:170px;">
-            </div>
-            <div>
-              <div style="font-size:12px; color:#6b7280;">Đến</div>
-              <input id="iv-to" type="date" style="padding:8px; width:170px;">
-            </div>
-            <button id="iv-apply" style="padding:8px 12px;">↻ Áp dụng</button>
-          </div>
-        </section>
+        <div>
+          <label style="font-size:13px;">Đến ngày</label><br>
+          <input id="inv-to-date" type="date" value="${lastDayOfMonth(prevYM)}" style="padding:8px; width:100%;">
+        </div>
 
-        <section style="border:1px solid #e5e7eb; border-radius:12px; padding:10px;">
-          <div style="font-weight:900; margin-bottom:6px;">Chi phí (có thể sửa tay)</div>
+        <div>
+          <label style="font-size:13px;">Người thuê</label><br>
+          <input id="inv-tenant-name" type="text" value="${escapeHtml(tenantName)}" style="padding:8px; width:100%;">
+        </div>
 
-          <div style="overflow:auto;">
-            <table style="width:100%; border-collapse:collapse; font-size:13px;">
-              <thead>
-                <tr style="background:#f3f4f6;">
-                  <th style="border:1px solid #e5e7eb; padding:6px; width:44px;">STT</th>
-                  <th style="border:1px solid #e5e7eb; padding:6px;">Nội dung</th>
-                  <th style="border:1px solid #e5e7eb; padding:6px; width:120px;">Đơn giá</th>
-                  <th style="border:1px solid #e5e7eb; padding:6px; width:90px;">SL</th>
-                  <th style="border:1px solid #e5e7eb; padding:6px; width:80px;">ĐV</th>
-                  <th style="border:1px solid #e5e7eb; padding:6px; width:130px;">Thành tiền</th>
-                  <th style="border:1px solid #e5e7eb; padding:6px; width:60px;">Xóa</th>
-                </tr>
-              </thead>
-              <tbody id="iv-body"></tbody>
-            </table>
-          </div>
-
-          <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:10px;">
-            <button id="iv-add-line" style="padding:8px 12px;">➕ Thêm khoản khác</button>
-          </div>
-
-          <div style="display:flex; justify-content:flex-end; margin-top:10px;">
-            <div style="font-weight:900; font-size:16px;">Tổng cộng: <span id="iv-sum">0</span> đ</div>
-          </div>
-        </section>
-
-        <div style="display:flex; gap:8px; justify-content:flex-end; flex-wrap:wrap;">
-          <button id="iv-confirm" style="padding:10px 14px; font-weight:900;">✅ Xác nhận & in</button>
+        <div>
+          <label style="font-size:13px;">Tiêu đề</label><br>
+          <input id="inv-title" type="text" value="Hóa đơn xuất phòng ${escapeHtml(room.number)} ngày ${todayISO().split("-").reverse().join("/")}" style="padding:8px; width:100%;">
         </div>
       </div>
+
+      <div style="margin-top:12px; display:flex; gap:8px; flex-wrap:wrap;">
+        <button id="inv-preview-btn" style="padding:8px 12px;">👁 Xem trước</button>
+        <button id="inv-save-btn" style="padding:8px 12px; font-weight:700;">💾 Tạo & lưu hóa đơn</button>
+        <button id="inv-print-btn" style="padding:8px 12px;">🖨 Tạo & in ngay</button>
+      </div>
+
+      <div id="inv-msg" style="margin-top:10px; font-size:12px;"></div>
+
+      <div id="inv-preview-box" style="margin-top:12px; border:1px solid #e5e7eb; border-radius:10px; padding:12px; max-height:50vh; overflow:auto;"></div>
     `);
 
-    document.getElementById("iv-close").onclick = close;
+    const closeBtn = document.getElementById("inv-close-btn");
+    const fromInput = document.getElementById("inv-from-date");
+    const toInput = document.getElementById("inv-to-date");
+    const tenantInput = document.getElementById("inv-tenant-name");
+    const titleInput = document.getElementById("inv-title");
+    const previewBtn = document.getElementById("inv-preview-btn");
+    const saveBtn = document.getElementById("inv-save-btn");
+    const printBtn = document.getElementById("inv-print-btn");
+    const msgEl = document.getElementById("inv-msg");
+    const previewBox = document.getElementById("inv-preview-box");
 
-    const customYM = document.getElementById("iv-custom-ym");
-    const fromInput = document.getElementById("iv-from");
-    const toInput = document.getElementById("iv-to");
+    if (closeBtn) closeBtn.onclick = close;
 
-    function currentYMSelected() {
-      const v = document.querySelector('input[name="iv-period"]:checked')?.value || "prev";
-      if (v === "prev") return prevYM;
-      if (v === "this") return thisYM;
-      return customYM.value || thisYM;
-    }
+    function buildDraft() {
+      const fromDate = toISO10(fromInput.value) || firstDayOfMonth(thisYM);
+      const toDate = toISO10(toInput.value) || lastDayOfMonth(thisYM);
+      const tenantNameVal = (tenantInput.value || "").trim();
+      const titleVal =
+        (titleInput.value || "").trim() ||
+        `Hóa đơn xuất phòng ${room.number} ngày ${todayISO().split("-").reverse().join("/")}`;
 
-    function applyPeriod() {
-      const ym = currentYMSelected();
-      fromInput.value = firstDayOfMonth(ym);
-      toInput.value = lastDayOfMonth(ym);
-      buildLines();
-    }
-
-    document.querySelectorAll('input[name="iv-period"]').forEach((r) => {
-      r.addEventListener("change", () => {
-        customYM.style.display = r.value === "custom" && r.checked ? "inline-block" : "none";
-        applyPeriod();
-      });
-    });
-
-    customYM.addEventListener("change", applyPeriod);
-    document.getElementById("iv-apply").onclick = buildLines;
-
-    // ===== lines table =====
-    const body = document.getElementById("iv-body");
-    const sumEl = document.getElementById("iv-sum");
-    const addLineBtn = document.getElementById("iv-add-line");
-
-    const elecCfg = getUtilityConfig(appState, "electricity");
-    const waterCfg = getUtilityConfig(appState, "water");
-
-    const lines = [];
-
-    function ensureMeterLines(ym, toDate) {
-      const elecData = getMeterLineData(appState, "electricity", room.number, ym, toDate);
-      const waterData = getMeterLineData(appState, "water", room.number, ym, toDate);
-
-      lines.push({
-        name: "Tiền điện",
-        unitPrice: Number(elecCfg.price || 0),
-        qty: Number(elecData.used || 0),
-        unit: elecCfg.unit || "kWh",
-        total: Number(elecData.used || 0) * Number(elecCfg.price || 0),
-        note: elecData.hasData
-          ? `Số cũ: ${fmtMoney(elecData.prev)} | Số mới: ${fmtMoney(elecData.curr)} | Dùng: ${fmtMoney(elecData.used)} ${escapeHtml(elecCfg.unit || "kWh")} | Ngày chốt: ${elecData.date || ""}`
-          : `Chưa có số điện. Số cũ hiện lưu: ${fmtMoney(elecData.prev)}`,
-        oldReading: Number(elecData.prev || 0),
-        newReading: Number(elecData.curr || 0),
-        readingDate: elecData.date || "",
-        period: elecData.period || ym,
-        _meterType: "electricity",
-      });
-
-      lines.push({
-        name: "Tiền nước",
-        unitPrice: Number(waterCfg.price || 0),
-        qty: Number(waterData.used || 0),
-        unit: waterCfg.unit || "m³",
-        total: Number(waterData.used || 0) * Number(waterCfg.price || 0),
-        note: waterData.hasData
-          ? `Số cũ: ${fmtMoney(waterData.prev)} | Số mới: ${fmtMoney(waterData.curr)} | Dùng: ${fmtMoney(waterData.used)} ${escapeHtml(waterCfg.unit || "m³")} | Ngày chốt: ${waterData.date || ""}`
-          : `Chưa có số nước. Số cũ hiện lưu: ${fmtMoney(waterData.prev)}`,
-        oldReading: Number(waterData.prev || 0),
-        newReading: Number(waterData.curr || 0),
-        readingDate: waterData.date || "",
-        period: waterData.period || ym,
-        _meterType: "water",
-      });
-    }
-
-    function renderRows() {
-      body.innerHTML = lines
-        .map((l, i) => {
-          const isMeter = !!l._meterType;
-          const disableDel = isMeter ? "disabled" : "";
-          const noteHtml = l.note
-            ? `<div style="font-size:11px; color:#6b7280; margin-top:2px; white-space:pre-line;">${escapeHtml(l.note)}</div>`
-            : "";
-
-          return `
-            <tr data-idx="${i}">
-              <td style="border:1px solid #e5e7eb; padding:6px; text-align:center;">${i + 1}</td>
-              <td style="border:1px solid #e5e7eb; padding:6px;">
-                <input class="iv-name" type="text" value="${escapeHtml(l.name)}" style="width:100%; padding:6px; font-weight:800;">
-                ${noteHtml}
-              </td>
-              <td style="border:1px solid #e5e7eb; padding:6px;">
-                <input class="iv-up" type="number" value="${Number(l.unitPrice || 0)}" style="width:100%; padding:6px;">
-              </td>
-              <td style="border:1px solid #e5e7eb; padding:6px;">
-                <input class="iv-qty" type="number" value="${Number(l.qty || 0)}" style="width:100%; padding:6px;">
-              </td>
-              <td style="border:1px solid #e5e7eb; padding:6px; text-align:center;">
-                <input class="iv-unit" type="text" value="${escapeHtml(l.unit || "")}" style="width:100%; padding:6px; text-align:center;">
-              </td>
-              <td style="border:1px solid #e5e7eb; padding:6px; text-align:right;">
-                <b class="iv-total">${fmtMoney(l.total || 0)}</b>
-              </td>
-              <td style="border:1px solid #e5e7eb; padding:6px; text-align:center;">
-                <button class="iv-del" ${disableDel} style="padding:6px 8px;">🗑</button>
-              </td>
-            </tr>
-          `;
-        })
-        .join("");
-    }
-
-    function recalcFromDOM() {
-      let sum = 0;
-      const trs = body.querySelectorAll("tr[data-idx]");
-
-      trs.forEach((tr) => {
-        const idx = Number(tr.getAttribute("data-idx"));
-        const name = tr.querySelector(".iv-name").value || "";
-        const up = Number(tr.querySelector(".iv-up").value || 0);
-        const qty = Number(tr.querySelector(".iv-qty").value || 0);
-        const unit = tr.querySelector(".iv-unit").value || "";
-        const total = up * qty;
-
-        Object.assign(lines[idx], { name, unitPrice: up, qty, unit, total });
-        tr.querySelector(".iv-total").innerText = fmtMoney(total);
-        sum += total;
-      });
-
-      sumEl.textContent = fmtMoney(sum);
-      return sum;
-    }
-
-    function wireHandlers() {
-      body.querySelectorAll("input").forEach((inp) => inp.addEventListener("input", recalcFromDOM));
-      body.querySelectorAll(".iv-del").forEach((btn) => {
-        btn.onclick = (e) => {
-          const tr = e.target.closest("tr[data-idx]");
-          const idx = Number(tr.getAttribute("data-idx"));
-          if (lines[idx]._meterType) return;
-          lines.splice(idx, 1);
-          renderRows();
-          wireHandlers();
-          recalcFromDOM();
-        };
-      });
-    }
-
-    function buildLines() {
-      const fromDate = toISO10(fromInput.value);
-      const toDate = toISO10(toInput.value);
-      if (!fromDate || !toDate) return;
-
-      lines.length = 0;
-
-      const base = buildBaseLines(room, appState, fromDate, toDate);
-      base.forEach((b) => lines.push({ ...b }));
-
-      const ym = ymOf(toDate) || currentYMSelected();
-      ensureMeterLines(ym, toDate);
-
-      renderRows();
-      wireHandlers();
-      recalcFromDOM();
-    }
-
-    addLineBtn.onclick = () => {
-      const meterCount = lines.filter((x) => x._meterType).length;
-      const insertAt = Math.max(0, lines.length - meterCount);
-      lines.splice(insertAt, 0, {
-        name: "Khoản khác",
-        unitPrice: 0,
-        qty: 1,
-        unit: "",
-        total: 0,
-        note: "",
-      });
-      renderRows();
-      wireHandlers();
-      recalcFromDOM();
-    };
-
-    // init
-    applyPeriod();
-
-    document.getElementById("iv-confirm").onclick = () => {
-      const fromDate = toISO10(fromInput.value);
-      const toDate = toISO10(toInput.value);
-      if (!fromDate || !toDate) return alert("Thiếu ngày từ/đến.");
-
-      const total = recalcFromDOM();
-
+      const lines = buildInvoiceLines(room, appState, fromDate, toDate);
       const printHtml = buildPrintA5Html({
-        title: BRAND.title,
+        title: titleVal,
+        room,
+        fromDate,
+        toDate,
+        tenantName: tenantNameVal,
+        lines,
+      });
+
+      return {
+        room,
+        tenantName: tenantNameVal,
+        fromDate,
+        toDate,
+        title: titleVal,
+        lines,
+        printHtml,
+      };
+    }
+
+    function renderPreview() {
+      const draft = buildDraft();
+      const total = draft.lines.reduce((a, l) => a + Number(l.total || 0), 0);
+
+      previewBox.innerHTML = `
+        <div style="font-weight:800; margin-bottom:8px;">${escapeHtml(draft.title)}</div>
+        <div style="font-size:13px; color:#4b5563; margin-bottom:8px;">
+          Phòng ${escapeHtml(draft.room.number)} | ${escapeHtml(draft.fromDate)} → ${escapeHtml(draft.toDate)} | Người thuê: ${escapeHtml(draft.tenantName || "(chưa có)")}
+        </div>
+
+        <table style="width:100%; border-collapse:collapse; font-size:13px;">
+          <thead>
+            <tr style="background:#f3f4f6;">
+              <th style="padding:6px; border:1px solid #e5e7eb; text-align:left;">Nội dung</th>
+              <th style="padding:6px; border:1px solid #e5e7eb; text-align:right;">Đơn giá</th>
+              <th style="padding:6px; border:1px solid #e5e7eb; text-align:right;">SL</th>
+              <th style="padding:6px; border:1px solid #e5e7eb; text-align:left;">ĐV</th>
+              <th style="padding:6px; border:1px solid #e5e7eb; text-align:right;">Thành tiền</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${draft.lines
+              .map(
+                (l) => `
+                  <tr>
+                    <td style="padding:6px; border:1px solid #e5e7eb;">
+                      <div><b>${escapeHtml(l.name)}</b></div>
+                      ${l.note ? `<div style="font-size:11px; color:#6b7280; white-space:pre-line;">${escapeHtml(l.note)}</div>` : ""}
+                    </td>
+                    <td style="padding:6px; border:1px solid #e5e7eb; text-align:right;">${fmtMoney(l.unitPrice)}</td>
+                    <td style="padding:6px; border:1px solid #e5e7eb; text-align:right;">${fmtMoney(l.qty)}</td>
+                    <td style="padding:6px; border:1px solid #e5e7eb;">${escapeHtml(l.unit || "")}</td>
+                    <td style="padding:6px; border:1px solid #e5e7eb; text-align:right;"><b>${fmtMoney(l.total)}</b></td>
+                  </tr>
+                `
+              )
+              .join("")}
+          </tbody>
+        </table>
+
+        <div style="margin-top:10px; text-align:right; font-size:15px;">
+          <b>Tổng cộng: ${fmtMoney(total)} đ</b>
+        </div>
+      `;
+    }
+
+    if (previewBtn) {
+      previewBtn.onclick = () => {
+        renderPreview();
+        msgEl.style.color = "#16a34a";
+        msgEl.innerText = "Đã cập nhật xem trước.";
+      };
+    }
+
+    if (saveBtn) {
+      saveBtn.onclick = () => {
+        const draft = buildDraft();
+        const inv = saveInvoiceToState({
+          appState,
+          room: draft.room,
+          tenantName: draft.tenantName,
+          fromDate: draft.fromDate,
+          toDate: draft.toDate,
+          lines: draft.lines,
+          title: draft.title,
+          printHtml: draft.printHtml,
+          metaType: "monthly",
+        });
+
+        msgEl.style.color = "#16a34a";
+        msgEl.innerText = `Đã tạo hóa đơn ${inv.code || ""} cho phòng ${room.number}.`;
+        renderPreview();
+      };
+    }
+
+    if (printBtn) {
+      printBtn.onclick = () => {
+        const draft = buildDraft();
+        saveInvoiceToState({
+          appState,
+          room: draft.room,
+          tenantName: draft.tenantName,
+          fromDate: draft.fromDate,
+          toDate: draft.toDate,
+          lines: draft.lines,
+          title: draft.title,
+          printHtml: draft.printHtml,
+          metaType: "monthly",
+        });
+
+        openPrintWindow(draft.printHtml);
+        msgEl.style.color = "#16a34a";
+        msgEl.innerText = `Đã tạo hóa đơn và mở cửa sổ in cho phòng ${room.number}.`;
+      };
+    }
+
+    renderPreview();
+  }
+
+  function openInvoicesForAllOccupiedRooms(appState) {
+    ensureState(appState);
+
+    const occupiedRooms = (appState.rooms || []).filter(
+      (r) => Array.isArray(r.tenants) && r.tenants.length > 0
+    );
+
+    if (occupiedRooms.length === 0) {
+      alert("Không có phòng nào đang thuê để xuất hóa đơn.");
+      return;
+    }
+
+    const fromDate = prompt("Nhập ngày bắt đầu (YYYY-MM-DD):", firstDayOfMonth(ymOf(todayISO())));
+    if (fromDate === null) return;
+
+    const toDate = prompt("Nhập ngày kết thúc (YYYY-MM-DD):", todayISO());
+    if (toDate === null) return;
+
+    let count = 0;
+
+    occupiedRooms.forEach((room) => {
+      const tenantName = getFirstTenantName(room);
+      const title = `Hóa đơn xuất phòng ${room.number} ngày ${todayISO().split("-").reverse().join("/")}`;
+      const lines = buildInvoiceLines(room, appState, fromDate, toDate);
+      const printHtml = buildPrintA5Html({
+        title,
         room,
         fromDate,
         toDate,
@@ -754,33 +789,24 @@
         lines,
       });
 
-      if (window.addInvoice) {
-        window.addInvoice({
-          roomNumber: String(room.number),
-          tenantName: tenantName || "",
-          issueDate: todayISO(),
-          invoiceDate: toDate,
-          total,
-          status: "unpaid",
-          missingAmount: 0,
-          lines: lines.map((x) => ({ ...x })),
-          meta: {
-            type: "monthly",
-            periodFrom: fromDate,
-            periodTo: toDate,
-            ym: ymOf(toDate),
-          },
-          printHtml,
-        });
-      }
+      saveInvoiceToState({
+        appState,
+        room,
+        tenantName,
+        fromDate,
+        toDate,
+        lines,
+        title,
+        printHtml,
+        metaType: "monthly",
+      });
 
-      if (window.saveAppState) window.saveAppState();
+      count++;
+    });
 
-      close();
-      openPrintWindow(printHtml);
-      if (window.setView) window.setView("invoices");
-    };
+    alert(`Đã tạo ${count} hóa đơn.`);
   }
 
   window.openInvoiceForRoom = openInvoiceForRoom;
+  window.openInvoicesForAllOccupiedRooms = openInvoicesForAllOccupiedRooms;
 })();
