@@ -96,7 +96,44 @@
     return room.tenants[0]?.fullName || "";
   }
 
-  // ===== meters calc for month =====
+  function normalizeText(v) {
+    return String(v || "")
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .trim();
+  }
+
+  // ===== lấy đơn giá điện / nước từ hệ thống =====
+  function getUtilityConfig(appState, type) {
+    const costs = Array.isArray(appState.costs) ? appState.costs : [];
+    const fromUnitPrices = appState.costUnitPrices?.[type] || {};
+
+    const keywords =
+      type === "electricity"
+        ? ["dien", "tien dien", "dien sinh hoat", "điện", "tiền điện"]
+        : ["nuoc", "tien nuoc", "nuoc sinh hoat", "nước", "tiền nước"];
+
+    const foundCost =
+      costs.find((c) => {
+        const name = normalizeText(c?.name);
+        return keywords.some((k) => name.includes(normalizeText(k)));
+      }) || null;
+
+    const price =
+      Number(fromUnitPrices?.price || 0) > 0
+        ? Number(fromUnitPrices.price)
+        : Number(foundCost?.amount || 0);
+
+    const unit =
+      String(fromUnitPrices?.unit || "").trim() ||
+      String(foundCost?.unit || "").trim() ||
+      (type === "electricity" ? "kWh" : "m³");
+
+    return { price, unit };
+  }
+
+  // ===== meters calc =====
   function getMeterHistory(appState, type) {
     const meter = (appState.meters && appState.meters[type]) || {};
     return Array.isArray(meter.history) ? meter.history : [];
@@ -116,6 +153,20 @@
     return best; // {prev,curr,used,date,period}
   }
 
+  function latestReadingUpToDate(appState, type, roomNumber, toDate) {
+    const hist = getMeterHistory(appState, type);
+    let best = null;
+    for (let i = hist.length - 1; i >= 0; i--) {
+      const h = hist[i];
+      if (String(h.roomNumber) !== String(roomNumber)) continue;
+      if (!h.date) continue;
+      if (toISO10(h.date) > toDate) continue;
+      best = h;
+      break;
+    }
+    return best;
+  }
+
   function prevReadingBeforeMonth(appState, type, roomNumber, ym) {
     const start = firstDayOfMonth(ym);
     const hist = getMeterHistory(appState, type);
@@ -128,10 +179,56 @@
     return 0;
   }
 
+  function getMeterLineData(appState, type, roomNumber, ym, toDate) {
+    const recInMonth = latestReadingInMonth(appState, type, roomNumber, ym);
+    const recAny = latestReadingUpToDate(appState, type, roomNumber, toDate);
+
+    const rec = recInMonth || recAny;
+
+    if (rec) {
+      const prev = Number(rec.prev || 0);
+      const curr = Number(rec.curr || 0);
+      const used =
+        rec.used != null && !Number.isNaN(Number(rec.used))
+          ? Number(rec.used)
+          : Math.max(0, curr - prev);
+
+      return {
+        prev,
+        curr,
+        used,
+        date: rec.date || "",
+        period: rec.period || ym,
+        hasData: true,
+        source: recInMonth ? "month" : "latest",
+      };
+    }
+
+    const fallbackPrev = prevReadingBeforeMonth(appState, type, roomNumber, ym);
+    return {
+      prev: fallbackPrev,
+      curr: fallbackPrev,
+      used: 0,
+      date: "",
+      period: ym,
+      hasData: false,
+      source: "none",
+    };
+  }
+
   // ===== lines =====
   function calcRentLine(room, fromDate, toDate) {
     const priceMonth = Number(room.price || 0);
-    if (!priceMonth) return { name: "Tiền phòng", unitPrice: 0, qty: 1, unit: "tháng", total: 0, note: "" };
+    if (!priceMonth) {
+      return {
+        name: "Tiền phòng",
+        unitPrice: 0,
+        qty: 1,
+        unit: "tháng",
+        total: 0,
+        note: "",
+      };
+    }
 
     const ym = ymOf(fromDate);
     const monthFirst = firstDayOfMonth(ym);
@@ -142,7 +239,14 @@
     const isFullMonth = fromDate === monthFirst && toDate === monthLast;
 
     if (isFullMonth) {
-      return { name: "Tiền phòng", unitPrice: priceMonth, qty: 1, unit: "tháng", total: priceMonth, note: "Ở đủ tháng" };
+      return {
+        name: "Tiền phòng",
+        unitPrice: priceMonth,
+        qty: 1,
+        unit: "tháng",
+        total: priceMonth,
+        note: "Ở đủ tháng",
+      };
     }
 
     const pricePerDay = priceMonth / daysInMonth;
@@ -165,18 +269,33 @@
 
     const baseCosts = appState.costs || [];
     const items = Array.isArray(room.costItems) ? room.costItems : [];
+
     items.forEach((ci) => {
+      const nameNorm = normalizeText(ci.name);
+      if (
+        nameNorm.includes("dien") ||
+        nameNorm.includes("điện") ||
+        nameNorm.includes("nuoc") ||
+        nameNorm.includes("nước")
+      ) {
+        return;
+      }
+
       const base = baseCosts.find((c) => c.name === ci.name) || {};
       const baseAmount = Number(base.amount || 0);
       const unit = base.unit || "";
 
       const unitPrice =
-        ci.amountOverride != null && ci.amountOverride !== "" && !Number.isNaN(Number(ci.amountOverride))
+        ci.amountOverride != null &&
+        ci.amountOverride !== "" &&
+        !Number.isNaN(Number(ci.amountOverride))
           ? Number(ci.amountOverride)
           : baseAmount;
 
       const qty =
-        ci.quantity != null && ci.quantity !== "" && !Number.isNaN(Number(ci.quantity))
+        ci.quantity != null &&
+        ci.quantity !== "" &&
+        !Number.isNaN(Number(ci.quantity))
           ? Number(ci.quantity)
           : 1;
 
@@ -214,9 +333,11 @@
       document.body.removeChild(overlay);
       document.removeEventListener("keydown", onKey);
     }
+
     function onKey(e) {
       if (e.key === "Escape") close();
     }
+
     document.addEventListener("keydown", onKey);
 
     overlay.addEventListener("click", (e) => {
@@ -269,7 +390,7 @@
     .c-stt { width:34px; text-align:center; }
     .c-unitprice, .c-qty, .c-total { width:80px; text-align:right; }
     .c-unit { width:45px; text-align:center; }
-    .note { margin-top:2px; font-size:10px; color:#555; }
+    .note { margin-top:2px; font-size:10px; color:#555; white-space:pre-line; }
     .sum { margin-top:10px; }
     .sum-row { display:flex; justify-content:space-between; border:1px solid #333; padding:6px; }
     .sum-row .label { font-weight:900; }
@@ -456,6 +577,7 @@
         applyPeriod();
       });
     });
+
     customYM.addEventListener("change", applyPeriod);
     document.getElementById("iv-apply").onclick = buildLines;
 
@@ -464,42 +586,44 @@
     const sumEl = document.getElementById("iv-sum");
     const addLineBtn = document.getElementById("iv-add-line");
 
-    const elecPrice = Number(appState.costUnitPrices?.electricity?.price || 0);
-    const waterPrice = Number(appState.costUnitPrices?.water?.price || 0);
-    const elecUnit = appState.costUnitPrices?.electricity?.unit || "kWh";
-    const waterUnit = appState.costUnitPrices?.water?.unit || "m³";
+    const elecCfg = getUtilityConfig(appState, "electricity");
+    const waterCfg = getUtilityConfig(appState, "water");
 
     const lines = [];
 
-    function ensureMeterLines(ym) {
-      // lấy reading trong tháng (latest chốt trong tháng)
-      const elecRec = latestReadingInMonth(appState, "electricity", room.number, ym);
-      const waterRec = latestReadingInMonth(appState, "water", room.number, ym);
-
-      const elecPrev = prevReadingBeforeMonth(appState, "electricity", room.number, ym);
-      const waterPrev = prevReadingBeforeMonth(appState, "water", room.number, ym);
-
-      // nếu tháng đó chưa chốt thì để qty=0 (sếp sửa tay nếu muốn)
-      const elecUsed = elecRec ? Math.max(0, Number(elecRec.curr || 0) - Number(elecPrev || 0)) : 0;
-      const waterUsed = waterRec ? Math.max(0, Number(waterRec.curr || 0) - Number(waterPrev || 0)) : 0;
+    function ensureMeterLines(ym, toDate) {
+      const elecData = getMeterLineData(appState, "electricity", room.number, ym, toDate);
+      const waterData = getMeterLineData(appState, "water", room.number, ym, toDate);
 
       lines.push({
         name: "Tiền điện",
-        unitPrice: elecPrice,
-        qty: elecUsed,
-        unit: elecUnit,
-        total: elecUsed * elecPrice,
-        note: elecRec ? `Chốt ${elecRec.date}: ${fmtMoney(elecRec.curr)} (lần trước ${fmtMoney(elecPrev)})` : "Chưa có lần chốt trong tháng (sửa tay nếu cần)",
+        unitPrice: Number(elecCfg.price || 0),
+        qty: Number(elecData.used || 0),
+        unit: elecCfg.unit || "kWh",
+        total: Number(elecData.used || 0) * Number(elecCfg.price || 0),
+        note: elecData.hasData
+          ? `Số cũ: ${fmtMoney(elecData.prev)} | Số mới: ${fmtMoney(elecData.curr)} | Dùng: ${fmtMoney(elecData.used)} ${escapeHtml(elecCfg.unit || "kWh")} | Ngày chốt: ${elecData.date || ""}`
+          : `Chưa có số điện. Số cũ hiện lưu: ${fmtMoney(elecData.prev)}`,
+        oldReading: Number(elecData.prev || 0),
+        newReading: Number(elecData.curr || 0),
+        readingDate: elecData.date || "",
+        period: elecData.period || ym,
         _meterType: "electricity",
       });
 
       lines.push({
         name: "Tiền nước",
-        unitPrice: waterPrice,
-        qty: waterUsed,
-        unit: waterUnit,
-        total: waterUsed * waterPrice,
-        note: waterRec ? `Chốt ${waterRec.date}: ${fmtMoney(waterRec.curr)} (lần trước ${fmtMoney(waterPrev)})` : "Chưa có lần chốt trong tháng (sửa tay nếu cần)",
+        unitPrice: Number(waterCfg.price || 0),
+        qty: Number(waterData.used || 0),
+        unit: waterCfg.unit || "m³",
+        total: Number(waterData.used || 0) * Number(waterCfg.price || 0),
+        note: waterData.hasData
+          ? `Số cũ: ${fmtMoney(waterData.prev)} | Số mới: ${fmtMoney(waterData.curr)} | Dùng: ${fmtMoney(waterData.used)} ${escapeHtml(waterCfg.unit || "m³")} | Ngày chốt: ${waterData.date || ""}`
+          : `Chưa có số nước. Số cũ hiện lưu: ${fmtMoney(waterData.prev)}`,
+        oldReading: Number(waterData.prev || 0),
+        newReading: Number(waterData.curr || 0),
+        readingDate: waterData.date || "",
+        period: waterData.period || ym,
         _meterType: "water",
       });
     }
@@ -509,7 +633,10 @@
         .map((l, i) => {
           const isMeter = !!l._meterType;
           const disableDel = isMeter ? "disabled" : "";
-          const noteHtml = l.note ? `<div style="font-size:11px; color:#6b7280; margin-top:2px;">${escapeHtml(l.note)}</div>` : "";
+          const noteHtml = l.note
+            ? `<div style="font-size:11px; color:#6b7280; margin-top:2px; white-space:pre-line;">${escapeHtml(l.note)}</div>`
+            : "";
+
           return `
             <tr data-idx="${i}">
               <td style="border:1px solid #e5e7eb; padding:6px; text-align:center;">${i + 1}</td>
@@ -541,6 +668,7 @@
     function recalcFromDOM() {
       let sum = 0;
       const trs = body.querySelectorAll("tr[data-idx]");
+
       trs.forEach((tr) => {
         const idx = Number(tr.getAttribute("data-idx"));
         const name = tr.querySelector(".iv-name").value || "";
@@ -553,6 +681,7 @@
         tr.querySelector(".iv-total").innerText = fmtMoney(total);
         sum += total;
       });
+
       sumEl.textContent = fmtMoney(sum);
       return sum;
     }
@@ -577,15 +706,13 @@
       const toDate = toISO10(toInput.value);
       if (!fromDate || !toDate) return;
 
-      // rebuild
       lines.length = 0;
 
       const base = buildBaseLines(room, appState, fromDate, toDate);
       base.forEach((b) => lines.push({ ...b }));
 
-      // meter lines theo tháng của "toDate"
       const ym = ymOf(toDate) || currentYMSelected();
-      ensureMeterLines(ym);
+      ensureMeterLines(ym, toDate);
 
       renderRows();
       wireHandlers();
@@ -593,9 +720,16 @@
     }
 
     addLineBtn.onclick = () => {
-      // insert trước 2 dòng meter (luôn cuối)
-      const insertAt = Math.max(0, lines.length - 2);
-      lines.splice(insertAt, 0, { name: "Khoản khác", unitPrice: 0, qty: 1, unit: "", total: 0, note: "" });
+      const meterCount = lines.filter((x) => x._meterType).length;
+      const insertAt = Math.max(0, lines.length - meterCount);
+      lines.splice(insertAt, 0, {
+        name: "Khoản khác",
+        unitPrice: 0,
+        qty: 1,
+        unit: "",
+        total: 0,
+        note: "",
+      });
       renderRows();
       wireHandlers();
       recalcFromDOM();
@@ -620,7 +754,6 @@
         lines,
       });
 
-      // lưu vào tab hóa đơn
       if (window.addInvoice) {
         window.addInvoice({
           roomNumber: String(room.number),
@@ -630,8 +763,13 @@
           total,
           status: "unpaid",
           missingAmount: 0,
-          lines: lines.map(x => ({...x})),
-          meta: { type: "monthly", periodFrom: fromDate, periodTo: toDate, ym: ymOf(toDate) },
+          lines: lines.map((x) => ({ ...x })),
+          meta: {
+            type: "monthly",
+            periodFrom: fromDate,
+            periodTo: toDate,
+            ym: ymOf(toDate),
+          },
           printHtml,
         });
       }
