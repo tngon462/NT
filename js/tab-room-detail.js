@@ -1,9 +1,10 @@
 // js/tab-room-detail.js
 // Màn chi tiết phòng: người thuê, thiết bị, chi phí, điện/nước, trả phòng
 // V2: Cho phép thêm nhiều thiết bị giống nhau theo số lượng (deviceAssignments lưu theo "đơn vị" từng cái)
+// + THÊM TIỀN CỌC: lưu riêng theo phòng, dùng cho hóa đơn và trả phòng
 
 function renderRoomDetail(mainContent, appState, roomNumber) {
-  const room = (appState.rooms || []).find((r) => r.number === roomNumber);
+  const room = (appState.rooms || []).find((r) => String(r.number) === String(roomNumber));
   if (!room) {
     mainContent.innerHTML = `<p>Không tìm thấy phòng ${roomNumber}.</p>`;
     return;
@@ -11,7 +12,9 @@ function renderRoomDetail(mainContent, appState, roomNumber) {
 
   // Đảm bảo cấu trúc dữ liệu
   if (!Array.isArray(room.tenants)) room.tenants = [];
-  if (!Array.isArray(room.costItems)) room.costItems = []; // {name, amountOverride, quantity}
+  if (!Array.isArray(room.costItems)) room.costItems = [];
+  if (room.deposit == null || Number.isNaN(Number(room.deposit))) room.deposit = 0;
+
   if (!appState.deviceAssignments) appState.deviceAssignments = [];
   if (!appState.devices) appState.devices = [];
   if (!appState.costs) appState.costs = [];
@@ -27,13 +30,12 @@ function renderRoomDetail(mainContent, appState, roomNumber) {
   const numTenants = room.tenants.length;
   const hasTenants = numTenants > 0;
 
-  // ==== Thiết bị trong phòng (V2: gom nhóm theo deviceId) ====
+  // ==== Thiết bị trong phòng (gom nhóm theo deviceId) ====
   const allAssignments = appState.deviceAssignments || [];
   const allDevices = appState.devices || [];
 
   const roomAssignments = allAssignments.filter((a) => String(a.roomNumber) === String(roomNumber));
 
-  // map deviceId -> qty
   const qtyByDeviceId = {};
   roomAssignments.forEach((a) => {
     const id = a.deviceId;
@@ -42,7 +44,7 @@ function renderRoomDetail(mainContent, appState, roomNumber) {
   });
 
   const roomDevices = Object.entries(qtyByDeviceId).map(([deviceId, qty]) => {
-    const dev = allDevices.find((d) => d.id === deviceId);
+    const dev = allDevices.find((d) => String(d.id) === String(deviceId));
     return {
       deviceId,
       name: dev ? dev.name : "(Thiết bị không tồn tại)",
@@ -52,16 +54,14 @@ function renderRoomDetail(mainContent, appState, roomNumber) {
     };
   });
 
-  // Remaining map (tính theo tổng số assignment toàn hệ thống)
   const deviceRemainingMap = {};
   allDevices.forEach((d) => {
     const total = d.totalQty != null ? Number(d.totalQty) : 0;
-    const used = allAssignments.filter((a) => a.deviceId === d.id).length; // mỗi assignment = 1 cái
+    const used = allAssignments.filter((a) => String(a.deviceId) === String(d.id)).length;
     const remaining = total > 0 ? Math.max(total - used, 0) : Infinity;
     deviceRemainingMap[d.id] = { total, used, remaining };
   });
 
-  // Available devices (V2: KHÔNG loại theo "đã có trong phòng", chỉ cần còn số lượng)
   const availableDevicesForRoom = allDevices.filter((d) => {
     if (!d.id) return false;
     const info = deviceRemainingMap[d.id];
@@ -71,11 +71,11 @@ function renderRoomDetail(mainContent, appState, roomNumber) {
   });
 
   // ==== Chi phí áp dụng cho phòng ====
-  const allCosts = appState.costs;
-  const roomCostNames = new Set(room.costItems.map((c) => c.name));
+  const allCosts = appState.costs || [];
+  const roomCostNames = new Set((room.costItems || []).map((c) => c.name));
   const availableCostsForRoom = allCosts.filter((c) => !roomCostNames.has(c.name));
 
-  // ==== Điện / nước: helper lấy lần chốt gần nhất ====
+  // ==== Điện / nước helper ====
   function getLastMeterInfo(type) {
     const meter = appState.meters[type] || { lastReadings: {}, history: [] };
     const lastRead =
@@ -85,7 +85,7 @@ function renderRoomDetail(mainContent, appState, roomNumber) {
     if (Array.isArray(meter.history)) {
       for (let i = meter.history.length - 1; i >= 0; i--) {
         const h = meter.history[i];
-        if (h.roomNumber === roomNumber) {
+        if (String(h.roomNumber) === String(roomNumber)) {
           lastHistory = h;
           break;
         }
@@ -95,51 +95,48 @@ function renderRoomDetail(mainContent, appState, roomNumber) {
   }
 
   function getAutoPrevReading(type, roomNumber) {
-  const meter = appState.meters[type] || { lastReadings: {}, history: [] };
+    const meter = appState.meters[type] || { lastReadings: {}, history: [] };
 
-  // Ưu tiên số đang lưu
-  if (meter.lastReadings && meter.lastReadings[roomNumber] != null) {
-    return Number(meter.lastReadings[roomNumber]) || 0;
+    if (meter.lastReadings && meter.lastReadings[roomNumber] != null) {
+      return Number(meter.lastReadings[roomNumber]) || 0;
+    }
+
+    const hist = Array.isArray(meter.history) ? meter.history : [];
+    for (let i = hist.length - 1; i >= 0; i--) {
+      const h = hist[i];
+      if (String(h.roomNumber) === String(roomNumber)) {
+        return Number(h.curr || 0);
+      }
+    }
+
+    return 0;
   }
 
-  // Nếu chưa có thì lấy curr của lần chốt gần nhất
-  const hist = Array.isArray(meter.history) ? meter.history : [];
-  for (let i = hist.length - 1; i >= 0; i--) {
-    const h = hist[i];
-    if (String(h.roomNumber) === String(roomNumber)) {
-      return Number(h.curr || 0);
+  function upsertMeterHistory(type, record) {
+    const meter = appState.meters[type];
+    meter.history = Array.isArray(meter.history) ? meter.history : [];
+
+    const idx = meter.history.findIndex(
+      (h) =>
+        String(h.roomNumber) === String(record.roomNumber) &&
+        String(h.period || "") === String(record.period || "") &&
+        String(h.date || "") === String(record.date || "")
+    );
+
+    if (idx >= 0) {
+      meter.history[idx] = {
+        ...meter.history[idx],
+        ...record,
+        savedAt: new Date().toISOString(),
+      };
+    } else {
+      meter.history.push({
+        ...record,
+        savedAt: new Date().toISOString(),
+      });
     }
   }
 
-  return 0;
-}
-
-function upsertMeterHistory(type, record) {
-  const meter = appState.meters[type];
-  meter.history = Array.isArray(meter.history) ? meter.history : [];
-
-  // Nếu đã có bản ghi cùng phòng + cùng kỳ + cùng ngày thì cập nhật đè
-  const idx = meter.history.findIndex(
-    (h) =>
-      String(h.roomNumber) === String(record.roomNumber) &&
-      String(h.period || "") === String(record.period || "") &&
-      String(h.date || "") === String(record.date || "")
-  );
-
-  if (idx >= 0) {
-    meter.history[idx] = {
-      ...meter.history[idx],
-      ...record,
-      savedAt: new Date().toISOString(),
-    };
-  } else {
-    meter.history.push({
-      ...record,
-      savedAt: new Date().toISOString(),
-    });
-  }
-}
-  
   const elecInfo = getLastMeterInfo("electricity");
   const waterInfo = getLastMeterInfo("water");
 
@@ -149,7 +146,7 @@ function upsertMeterHistory(type, record) {
     now.getDate()
   ).padStart(2, "0")}`;
 
-  // ==== RENDER HTML CHÍNH ====
+  // ==== RENDER HTML ====
   mainContent.innerHTML = `
     <div class="room-detail-header">
       <button class="back-to-rooms-btn" id="back-to-rooms-btn">
@@ -160,8 +157,26 @@ function upsertMeterHistory(type, record) {
     </div>
 
     <div class="room-basic-info">
-      <div><b>Giá phòng:</b> ${room.price ? room.price.toLocaleString() + " đ" : "Chưa đặt"}</div>
+      <div><b>Giá phòng:</b> ${room.price ? Number(room.price).toLocaleString("vi-VN") + " đ" : "Chưa đặt"}</div>
       <div><b>Số người đang ở:</b> ${numTenants}</div>
+
+      <div style="margin-top:6px; font-size:13px;">
+        <b>TIỀN CỌC:</b>
+        <input
+          id="room-deposit-input"
+          type="number"
+          min="0"
+          step="1000"
+          value="${Number(room.deposit || 0) > 0 ? Number(room.deposit || 0) : ""}"
+          placeholder="Nhập tiền cọc"
+          style="padding:4px; margin-left:6px; width:140px;"
+        />
+        <span style="margin-left:4px;">đ</span>
+        <button id="save-room-deposit-btn" style="padding:4px 10px; margin-left:6px; font-size:12px;">
+          Lưu
+        </button>
+        <span id="room-deposit-msg" style="margin-left:8px; font-size:12px;"></span>
+      </div>
 
       <div style="margin-top:6px; font-size:13px;">
         <b>NGÀY VÀO PHÒNG:</b>
@@ -176,11 +191,14 @@ function upsertMeterHistory(type, record) {
       </div>
 
       <div style="font-size:12px; color:#6b7280; margin-top:4px;">
+        Tiền cọc là khoản cố định của phòng, sẽ hiển thị trên hóa đơn và dùng khi trả phòng.
+      </div>
+
+      <div style="font-size:12px; color:#6b7280; margin-top:4px;">
         Thông tin người thuê sẽ dùng để tính các loại chi phí theo đơn vị (ví dụ: rác theo số người).
       </div>
     </div>
 
-    <!-- Người thuê trong phòng -->
     <div class="tenants-section">
       <h4>Người thuê trong phòng</h4>
 
@@ -310,7 +328,6 @@ function upsertMeterHistory(type, record) {
       </div>
     </div>
 
-    <!-- Thiết bị trong phòng (V2) -->
     <div class="room-section" style="margin-top:16px;">
       <h4>Thiết bị trong phòng</h4>
 
@@ -391,7 +408,6 @@ function upsertMeterHistory(type, record) {
       </div>
     </div>
 
-    <!-- Các khoản phí áp dụng cho phòng -->
     <div class="room-section" style="margin-top:16px;">
       <h4>Các khoản phí áp dụng cho phòng</h4>
       <p style="font-size:13px; color:#4b5563; margin-bottom:6px;">
@@ -436,7 +452,7 @@ function upsertMeterHistory(type, record) {
                       <div style="font-size:11px; color:#6b7280;">
                         Mặc định: ${
                           baseAmount > 0
-                            ? baseAmount.toLocaleString() + (unit ? " / " + unit : "")
+                            ? Number(baseAmount).toLocaleString("vi-VN") + (unit ? " / " + unit : "")
                             : "(chưa đặt)"
                         }
                       </div>
@@ -450,7 +466,7 @@ function upsertMeterHistory(type, record) {
                           placeholder="= dùng mặc định"
                         >
                         <span style="font-size:11px; color:#4b5563; margin-left:4px;">
-                          (Đang tính: ${appliedPrice > 0 ? appliedPrice.toLocaleString() : "0"}${
+                          (Đang tính: ${appliedPrice > 0 ? Number(appliedPrice).toLocaleString("vi-VN") : "0"}${
                   unit ? " / " + unit : ""
                 })
                         </span>
@@ -468,7 +484,7 @@ function upsertMeterHistory(type, record) {
                     </td>
                     <td style="padding:4px;">${unit || "-"}</td>
                     <td style="padding:4px;">
-                      <b>${total.toLocaleString()}</b>
+                      <b>${Number(total).toLocaleString("vi-VN")}</b>
                     </td>
                     <td style="padding:4px;">
                       <button 
@@ -500,7 +516,7 @@ function upsertMeterHistory(type, record) {
               : availableCostsForRoom
                   .map((c) => {
                     const unit = c.unit || "";
-                    const amt = c.amount != null ? `${c.amount.toLocaleString()}` : "0";
+                    const amt = c.amount != null ? `${Number(c.amount).toLocaleString("vi-VN")}` : "0";
                     return `<option value="${c.name}">
                       ${c.name} - ${amt}${unit ? " / " + unit : ""}
                     </option>`;
@@ -517,7 +533,6 @@ function upsertMeterHistory(type, record) {
       </div>
     </div>
 
-    <!-- Điện / Nước phòng này -->
     <div class="room-section" style="margin-top:16px;">
       <h4>Điện / nước của phòng này</h4>
       <div id="room-meter-msg" style="margin-bottom:6px; font-size:12px;"></div>
@@ -536,7 +551,7 @@ function upsertMeterHistory(type, record) {
             }
           </div>
           <div style="font-size:12px; color:#4b5563; margin-bottom:4px;">
-           Số công tơ đang lưu: ${getAutoPrevReading("electricity", roomNumber)}
+            Số công tơ đang lưu: ${getAutoPrevReading("electricity", roomNumber)}
           </div>
 
           <div style="margin-top:4px; font-size:13px;">
@@ -597,7 +612,6 @@ function upsertMeterHistory(type, record) {
       </div>
     </div>
 
-    <!-- Hóa đơn + Trả phòng -->
     <div class="invoice-section" style="margin-top:16px;">
       <h4>Hóa đơn & trả phòng</h4>
       <p style="font-size:13px; color:#4b5563;">
@@ -621,13 +635,47 @@ function upsertMeterHistory(type, record) {
 
   // ==== EVENT HANDLERS ====
 
-  // Quay lại danh sách phòng
   const backBtn = document.getElementById("back-to-rooms-btn");
-  backBtn.onclick = () => {
-    if (window.setView) window.setView("rooms");
-  };
+  if (backBtn) {
+    backBtn.onclick = () => {
+      if (window.setView) window.setView("rooms");
+    };
+  }
 
-  // ===== NGÀY VÀO PHÒNG: lưu moveInDate =====
+  // ===== TIỀN CỌC =====
+  const roomDepositInput = document.getElementById("room-deposit-input");
+  const saveRoomDepositBtn = document.getElementById("save-room-deposit-btn");
+  const roomDepositMsg = document.getElementById("room-deposit-msg");
+
+  if (saveRoomDepositBtn && roomDepositInput) {
+    saveRoomDepositBtn.onclick = () => {
+      const raw = (roomDepositInput.value || "").trim();
+
+      if (raw === "") {
+        room.deposit = 0;
+        if (window.saveAppState) window.saveAppState();
+        roomDepositMsg.style.color = "#16a34a";
+        roomDepositMsg.innerText = "Đã xóa tiền cọc.";
+        renderRoomDetail(mainContent, appState, roomNumber);
+        return;
+      }
+
+      const deposit = Number(raw);
+      if (Number.isNaN(deposit) || deposit < 0) {
+        roomDepositMsg.style.color = "#b91c1c";
+        roomDepositMsg.innerText = "Tiền cọc không hợp lệ.";
+        return;
+      }
+
+      room.deposit = deposit;
+      if (window.saveAppState) window.saveAppState();
+      roomDepositMsg.style.color = "#16a34a";
+      roomDepositMsg.innerText = "Đã lưu tiền cọc.";
+      renderRoomDetail(mainContent, appState, roomNumber);
+    };
+  }
+
+  // ===== NGÀY VÀO PHÒNG =====
   const moveInInput = document.getElementById("movein-date-input");
   const saveMoveInBtn = document.getElementById("save-movein-btn");
   const moveInMsg = document.getElementById("movein-msg");
@@ -646,12 +694,14 @@ function upsertMeterHistory(type, record) {
   // Toggle form người thuê
   const toggleFormBtn = document.getElementById("toggle-tenant-form-btn");
   const tenantFormContainer = document.getElementById("tenant-form-container");
-  toggleFormBtn.onclick = () => {
-    tenantFormContainer.style.display =
-      tenantFormContainer.style.display === "none" || tenantFormContainer.style.display === ""
-        ? "block"
-        : "none";
-  };
+  if (toggleFormBtn && tenantFormContainer) {
+    toggleFormBtn.onclick = () => {
+      tenantFormContainer.style.display =
+        tenantFormContainer.style.display === "none" || tenantFormContainer.style.display === ""
+          ? "block"
+          : "none";
+    };
+  }
 
   // Thêm người thuê
   const nameInput = document.getElementById("tenant-name-input");
@@ -674,7 +724,6 @@ function upsertMeterHistory(type, record) {
     return v;
   }
 
-  // dropdown ... => hiện ô nhập thủ công
   if (genderSelect && genderCustom) {
     genderSelect.onchange = () => {
       if (genderSelect.value === "...") {
@@ -686,6 +735,7 @@ function upsertMeterHistory(type, record) {
       }
     };
   }
+
   if (relSelect && relCustom) {
     relSelect.onchange = () => {
       if (relSelect.value === "...") {
@@ -698,67 +748,70 @@ function upsertMeterHistory(type, record) {
     };
   }
 
-  addTenantBtn.onclick = () => {
-    const fullName = nameInput.value.trim();
-    if (!fullName) {
-      tenantMsg.style.color = "#b91c1c";
-      tenantMsg.innerText = "Họ và tên là bắt buộc.";
-      return;
-    }
+  if (addTenantBtn) {
+    addTenantBtn.onclick = () => {
+      const fullName = (nameInput?.value || "").trim();
+      if (!fullName) {
+        if (tenantMsg) {
+          tenantMsg.style.color = "#b91c1c";
+          tenantMsg.innerText = "Họ và tên là bắt buộc.";
+        }
+        return;
+      }
 
-    const gender = pickSelectOrCustom(genderSelect, genderCustom);
-    const relationship = pickSelectOrCustom(relSelect, relCustom);
-    const dob = (dobInput?.value || "").trim();
-    const isOwner = !!ownerCheckbox?.checked;
+      const gender = pickSelectOrCustom(genderSelect, genderCustom);
+      const relationship = pickSelectOrCustom(relSelect, relCustom);
+      const dob = (dobInput?.value || "").trim();
+      const isOwner = !!ownerCheckbox?.checked;
 
-    // enforce 1 chủ phòng
-    if (isOwner) {
-      (room.tenants || []).forEach((t) => (t.isOwner = false));
-    }
+      if (isOwner) {
+        (room.tenants || []).forEach((t) => (t.isOwner = false));
+      }
 
-    const newTenant = {
-      fullName,
-      gender,
-      dob,
-      relationship,
-      isOwner,
-      address: addressInput.value.trim(),
-      hometown: hometownInput.value.trim(),
-      phone: phoneInput.value.trim(),
-      note: noteInput.value.trim(),
+      const newTenant = {
+        fullName,
+        gender,
+        dob,
+        relationship,
+        isOwner,
+        address: (addressInput?.value || "").trim(),
+        hometown: (hometownInput?.value || "").trim(),
+        phone: (phoneInput?.value || "").trim(),
+        note: (noteInput?.value || "").trim(),
+      };
+
+      if ((room.tenants || []).length === 0 && !room.moveInDate) {
+        const now = new Date();
+        const y = now.getFullYear();
+        const m = String(now.getMonth() + 1).padStart(2, "0");
+        const d = String(now.getDate()).padStart(2, "0");
+        room.moveInDate = `${y}-${m}-${d}`;
+      }
+
+      room.tenants.push(newTenant);
+      if (window.saveAppState) window.saveAppState();
+
+      if (tenantMsg) {
+        tenantMsg.style.color = "#16a34a";
+        tenantMsg.innerText = `Đã thêm người thuê "${fullName}".`;
+      }
+
+      if (nameInput) nameInput.value = "";
+      if (genderSelect) genderSelect.value = "";
+      if (genderCustom) { genderCustom.value = ""; genderCustom.style.display = "none"; }
+      if (dobInput) dobInput.value = "";
+      if (relSelect) relSelect.value = "";
+      if (relCustom) { relCustom.value = ""; relCustom.style.display = "none"; }
+      if (ownerCheckbox) ownerCheckbox.checked = false;
+      if (addressInput) addressInput.value = "";
+      if (hometownInput) hometownInput.value = "";
+      if (phoneInput) phoneInput.value = "";
+      if (noteInput) noteInput.value = "";
+
+      renderRoomDetail(mainContent, appState, roomNumber);
     };
+  }
 
-    // nếu là người thuê đầu tiên và chưa có moveInDate -> set mặc định = hôm nay
-    if ((room.tenants || []).length === 0 && !room.moveInDate) {
-      const now = new Date();
-      const y = now.getFullYear();
-      const m = String(now.getMonth() + 1).padStart(2, "0");
-      const d = String(now.getDate()).padStart(2, "0");
-      room.moveInDate = `${y}-${m}-${d}`;
-    }
-
-    room.tenants.push(newTenant);
-    if (window.saveAppState) window.saveAppState();
-
-    tenantMsg.style.color = "#16a34a";
-    tenantMsg.innerText = `Đã thêm người thuê "${fullName}".`;
-
-    nameInput.value = "";
-    if (genderSelect) genderSelect.value = "";
-    if (genderCustom) { genderCustom.value = ""; genderCustom.style.display = "none"; }
-    if (dobInput) dobInput.value = "";
-    if (relSelect) relSelect.value = "";
-    if (relCustom) { relCustom.value = ""; relCustom.style.display = "none"; }
-    if (ownerCheckbox) ownerCheckbox.checked = false;
-    addressInput.value = "";
-    hometownInput.value = "";
-    phoneInput.value = "";
-    noteInput.value = "";
-
-    renderRoomDetail(mainContent, appState, roomNumber);
-  };
-
-  // Xóa người thuê
   mainContent.querySelectorAll(".remove-tenant-btn").forEach((btn) => {
     const idx = Number(btn.getAttribute("data-tenant-index"));
     btn.onclick = () => {
@@ -771,14 +824,15 @@ function upsertMeterHistory(type, record) {
   // Toggle form thiết bị
   const toggleDeviceFormBtn = document.getElementById("toggle-device-form-btn");
   const deviceFormContainer = document.getElementById("device-form-container");
-  toggleDeviceFormBtn.onclick = () => {
-    deviceFormContainer.style.display =
-      deviceFormContainer.style.display === "none" || deviceFormContainer.style.display === ""
-        ? "block"
-        : "none";
-  };
+  if (toggleDeviceFormBtn && deviceFormContainer) {
+    toggleDeviceFormBtn.onclick = () => {
+      deviceFormContainer.style.display =
+        deviceFormContainer.style.display === "none" || deviceFormContainer.style.display === ""
+          ? "block"
+          : "none";
+    };
+  }
 
-  // Thiết bị (V2): -1
   mainContent.querySelectorAll(".dev-minus-btn").forEach((btn) => {
     const deviceId = btn.getAttribute("data-device-id");
     btn.onclick = () => {
@@ -793,7 +847,6 @@ function upsertMeterHistory(type, record) {
     };
   });
 
-  // Thiết bị (V2): +1
   mainContent.querySelectorAll(".dev-plus-btn").forEach((btn) => {
     const deviceId = btn.getAttribute("data-device-id");
     btn.onclick = () => {
@@ -808,7 +861,6 @@ function upsertMeterHistory(type, record) {
     };
   });
 
-  // Thiết bị (V2): xóa hết
   mainContent.querySelectorAll(".dev-remove-all-btn").forEach((btn) => {
     const deviceId = btn.getAttribute("data-device-id");
     btn.onclick = () => {
@@ -822,94 +874,110 @@ function upsertMeterHistory(type, record) {
     };
   });
 
-  // Thiết bị (V2): thêm theo số lượng
   const roomDeviceSelect = document.getElementById("room-device-select");
   const roomDeviceQty = document.getElementById("room-device-qty");
   const roomAddDeviceBtn = document.getElementById("room-add-device-btn");
   const roomDeviceMsg = document.getElementById("room-device-msg");
 
-  roomAddDeviceBtn.onclick = () => {
-    const deviceId = roomDeviceSelect.value;
-    if (!deviceId) {
-      roomDeviceMsg.style.color = "#b91c1c";
-      roomDeviceMsg.innerText = "Vui lòng chọn thiết bị để gắn.";
-      return;
-    }
-
-    let qty = Number(roomDeviceQty.value || 1);
-    if (Number.isNaN(qty) || qty < 1) qty = 1;
-
-    const info = deviceRemainingMap[deviceId];
-    if (info && info.total > 0 && info.remaining <= 0) {
-      roomDeviceMsg.style.color = "#b91c1c";
-      roomDeviceMsg.innerText = "Thiết bị này đã hết số lượng để gắn.";
-      return;
-    }
-
-    // nếu có giới hạn total, clamp theo remaining
-    if (info && info.total > 0) {
-      qty = Math.min(qty, info.remaining);
-      if (qty <= 0) {
-        roomDeviceMsg.style.color = "#b91c1c";
-        roomDeviceMsg.innerText = "Thiết bị này đã hết số lượng để gắn.";
+  if (roomAddDeviceBtn) {
+    roomAddDeviceBtn.onclick = () => {
+      const deviceId = roomDeviceSelect?.value;
+      if (!deviceId) {
+        if (roomDeviceMsg) {
+          roomDeviceMsg.style.color = "#b91c1c";
+          roomDeviceMsg.innerText = "Vui lòng chọn thiết bị để gắn.";
+        }
         return;
       }
-    }
 
-    for (let i = 0; i < qty; i++) {
-      appState.deviceAssignments.push({ deviceId, roomNumber });
-    }
-    if (window.saveAppState) window.saveAppState();
+      let qty = Number(roomDeviceQty?.value || 1);
+      if (Number.isNaN(qty) || qty < 1) qty = 1;
 
-    roomDeviceMsg.style.color = "#16a34a";
-    roomDeviceMsg.innerText = `Đã gắn thiết bị (${qty} cái) cho phòng.`;
+      const info = deviceRemainingMap[deviceId];
+      if (info && info.total > 0 && info.remaining <= 0) {
+        if (roomDeviceMsg) {
+          roomDeviceMsg.style.color = "#b91c1c";
+          roomDeviceMsg.innerText = "Thiết bị này đã hết số lượng để gắn.";
+        }
+        return;
+      }
 
-    renderRoomDetail(mainContent, appState, roomNumber);
-  };
+      if (info && info.total > 0) {
+        qty = Math.min(qty, info.remaining);
+        if (qty <= 0) {
+          if (roomDeviceMsg) {
+            roomDeviceMsg.style.color = "#b91c1c";
+            roomDeviceMsg.innerText = "Thiết bị này đã hết số lượng để gắn.";
+          }
+          return;
+        }
+      }
+
+      for (let i = 0; i < qty; i++) {
+        appState.deviceAssignments.push({ deviceId, roomNumber });
+      }
+      if (window.saveAppState) window.saveAppState();
+
+      if (roomDeviceMsg) {
+        roomDeviceMsg.style.color = "#16a34a";
+        roomDeviceMsg.innerText = `Đã gắn thiết bị (${qty} cái) cho phòng.`;
+      }
+
+      renderRoomDetail(mainContent, appState, roomNumber);
+    };
+  }
 
   // Toggle form chi phí
   const toggleCostFormBtn = document.getElementById("toggle-cost-form-btn");
   const costFormContainer = document.getElementById("cost-form-container");
-  toggleCostFormBtn.onclick = () => {
-    costFormContainer.style.display =
-      costFormContainer.style.display === "none" || costFormContainer.style.display === ""
-        ? "block"
-        : "none";
-  };
+  if (toggleCostFormBtn && costFormContainer) {
+    toggleCostFormBtn.onclick = () => {
+      costFormContainer.style.display =
+        costFormContainer.style.display === "none" || costFormContainer.style.display === ""
+          ? "block"
+          : "none";
+    };
+  }
 
-  // Phí: thêm
   const roomCostSelect = document.getElementById("room-cost-select");
   const roomAddCostBtn = document.getElementById("room-add-cost-btn");
   const roomCostMsg = document.getElementById("room-cost-msg");
 
-  roomAddCostBtn.onclick = () => {
-    const name = roomCostSelect.value;
-    if (!name) {
-      roomCostMsg.style.color = "#b91c1c";
-      roomCostMsg.innerText = "Vui lòng chọn loại phí để gắn.";
-      return;
-    }
+  if (roomAddCostBtn) {
+    roomAddCostBtn.onclick = () => {
+      const name = roomCostSelect?.value;
+      if (!name) {
+        if (roomCostMsg) {
+          roomCostMsg.style.color = "#b91c1c";
+          roomCostMsg.innerText = "Vui lòng chọn loại phí để gắn.";
+        }
+        return;
+      }
 
-    if (room.costItems.some((ci) => ci.name === name)) {
-      roomCostMsg.style.color = "#b91c1c";
-      roomCostMsg.innerText = "Khoản phí này đã gắn cho phòng rồi.";
-      return;
-    }
+      if (room.costItems.some((ci) => ci.name === name)) {
+        if (roomCostMsg) {
+          roomCostMsg.style.color = "#b91c1c";
+          roomCostMsg.innerText = "Khoản phí này đã gắn cho phòng rồi.";
+        }
+        return;
+      }
 
-    room.costItems.push({
-      name,
-      amountOverride: null,
-      quantity: 1,
-    });
-    if (window.saveAppState) window.saveAppState();
+      room.costItems.push({
+        name,
+        amountOverride: null,
+        quantity: 1,
+      });
+      if (window.saveAppState) window.saveAppState();
 
-    roomCostMsg.style.color = "#16a34a";
-    roomCostMsg.innerText = `Đã gắn phí "${name}" cho phòng.`;
+      if (roomCostMsg) {
+        roomCostMsg.style.color = "#16a34a";
+        roomCostMsg.innerText = `Đã gắn phí "${name}" cho phòng.`;
+      }
 
-    renderRoomDetail(mainContent, appState, roomNumber);
-  };
+      renderRoomDetail(mainContent, appState, roomNumber);
+    };
+  }
 
-  // Phí: xóa
   mainContent.querySelectorAll(".remove-room-cost-btn").forEach((btn) => {
     const name = btn.getAttribute("data-cost-name");
     btn.onclick = () => {
@@ -919,14 +987,13 @@ function upsertMeterHistory(type, record) {
     };
   });
 
-  // Phí: lưu đơn giá riêng cho phòng
   mainContent.querySelectorAll(".room-cost-override-input").forEach((inp) => {
     const name = inp.getAttribute("data-cost-name");
     inp.onchange = () => {
       const ci = room.costItems.find((c) => c.name === name);
       if (!ci) return;
 
-      const v = inp.value.trim();
+      const v = (inp.value || "").trim();
       if (v === "") {
         ci.amountOverride = null;
       } else {
@@ -946,7 +1013,6 @@ function upsertMeterHistory(type, record) {
     };
   });
 
-  // Phí: lưu số lượng
   mainContent.querySelectorAll(".room-cost-qty-input").forEach((inp) => {
     const name = inp.getAttribute("data-cost-name");
     inp.onchange = () => {
@@ -964,104 +1030,109 @@ function upsertMeterHistory(type, record) {
     };
   });
 
-  // Chốt điện cho phòng
+  // Điện / nước
   const roomMeterMsg = document.getElementById("room-meter-msg");
+
   const elecPeriodInput = document.getElementById("elec-period-room");
   const elecDateInput = document.getElementById("elec-date-room");
   const elecCurrentInput = document.getElementById("elec-current-room");
   const elecSaveBtn = document.getElementById("save-elec-room-btn");
 
-  elecSaveBtn.onclick = () => {
-  const period = elecPeriodInput.value || defaultMonth;
-  const date = elecDateInput.value || defaultDate;
-  const currStr = (elecCurrentInput.value || "").trim();
+  if (elecSaveBtn) {
+    elecSaveBtn.onclick = () => {
+      const period = elecPeriodInput?.value || defaultMonth;
+      const date = elecDateInput?.value || defaultDate;
+      const currStr = (elecCurrentInput?.value || "").trim();
 
-  const meter = appState.meters.electricity;
-  const prev = getAutoPrevReading("electricity", roomNumber);
+      const meter = appState.meters.electricity;
+      const prev = getAutoPrevReading("electricity", roomNumber);
 
-  if (!currStr) {
-    roomMeterMsg.style.color = "#b91c1c";
-    roomMeterMsg.innerText = "Chưa nhập số điện hiện tại.";
-    return;
+      if (!currStr) {
+        roomMeterMsg.style.color = "#b91c1c";
+        roomMeterMsg.innerText = "Chưa nhập số điện hiện tại.";
+        return;
+      }
+
+      const curr = Number(currStr);
+      if (isNaN(curr) || curr < prev) {
+        roomMeterMsg.style.color = "#b91c1c";
+        roomMeterMsg.innerText = `Số điện hiện tại không hợp lệ. Số mới phải >= số cũ (${prev}).`;
+        return;
+      }
+
+      const used = curr - prev;
+
+      upsertMeterHistory("electricity", {
+        period,
+        date,
+        roomNumber,
+        prev,
+        curr,
+        used,
+      });
+
+      meter.lastReadings = meter.lastReadings || {};
+      meter.lastReadings[roomNumber] = curr;
+
+      if (window.saveAppState) window.saveAppState();
+
+      roomMeterMsg.style.color = "#16a34a";
+      roomMeterMsg.innerText = `Đã chốt số điện: dùng ${used} (từ ${prev} → ${curr}).`;
+
+      renderRoomDetail(mainContent, appState, roomNumber);
+    };
   }
 
-  const curr = Number(currStr);
-  if (isNaN(curr) || curr < prev) {
-    roomMeterMsg.style.color = "#b91c1c";
-    roomMeterMsg.innerText = `Số điện hiện tại không hợp lệ. Số mới phải >= số cũ (${prev}).`;
-    return;
-  }
-
-  const used = curr - prev;
-
-  upsertMeterHistory("electricity", {
-    period,
-    date,
-    roomNumber,
-    prev,
-    curr,
-    used,
-  });
-
-  meter.lastReadings = meter.lastReadings || {};
-  meter.lastReadings[roomNumber] = curr;
-
-  if (window.saveAppState) window.saveAppState();
-
-  roomMeterMsg.style.color = "#16a34a";
-  roomMeterMsg.innerText = `Đã chốt số điện: dùng ${used} (từ ${prev} → ${curr}).`;
-
-  renderRoomDetail(mainContent, appState, roomNumber);
-};
-
-  // Chốt nước cho phòng
   const waterPeriodInput = document.getElementById("water-period-room");
   const waterDateInput = document.getElementById("water-date-room");
   const waterCurrentInput = document.getElementById("water-current-room");
   const waterSaveBtn = document.getElementById("save-water-room-btn");
 
-  waterSaveBtn.onclick = () => {
-  const period = waterPeriodInput.value || defaultMonth;
-  const date = waterDateInput.value || defaultDate;
-  const currStr = (waterCurrentInput.value || "").trim();
+  if (waterSaveBtn) {
+    waterSaveBtn.onclick = () => {
+      const period = waterPeriodInput?.value || defaultMonth;
+      const date = waterDateInput?.value || defaultDate;
+      const currStr = (waterCurrentInput?.value || "").trim();
 
-  const meter = appState.meters.water;
-  const prev = getAutoPrevReading("water", roomNumber);
+      const meter = appState.meters.water;
+      const prev = getAutoPrevReading("water", roomNumber);
 
-  if (!currStr) {
-    roomMeterMsg.style.color = "#b91c1c";
-    roomMeterMsg.innerText = "Chưa nhập số nước hiện tại.";
-    return;
+      if (!currStr) {
+        roomMeterMsg.style.color = "#b91c1c";
+        roomMeterMsg.innerText = "Chưa nhập số nước hiện tại.";
+        return;
+      }
+
+      const curr = Number(currStr);
+      if (isNaN(curr) || curr < prev) {
+        roomMeterMsg.style.color = "#b91c1c";
+        roomMeterMsg.innerText = `Số nước hiện tại không hợp lệ. Số mới phải >= số cũ (${prev}).`;
+        return;
+      }
+
+      const used = curr - prev;
+
+      upsertMeterHistory("water", {
+        period,
+        date,
+        roomNumber,
+        prev,
+        curr,
+        used,
+      });
+
+      meter.lastReadings = meter.lastReadings || {};
+      meter.lastReadings[roomNumber] = curr;
+
+      if (window.saveAppState) window.saveAppState();
+
+      roomMeterMsg.style.color = "#16a34a";
+      roomMeterMsg.innerText = `Đã chốt số nước: dùng ${used} (từ ${prev} → ${curr}).`;
+
+      renderRoomDetail(mainContent, appState, roomNumber);
+    };
   }
 
-  const curr = Number(currStr);
-  if (isNaN(curr) || curr < prev) {
-    roomMeterMsg.style.color = "#b91c1c";
-    roomMeterMsg.innerText = `Số nước hiện tại không hợp lệ. Số mới phải >= số cũ (${prev}).`;
-    return;
-  }
-
-  const used = curr - prev;
-
-  upsertMeterHistory("water", {
-    period,
-    date,
-    roomNumber,
-    prev,
-    curr,
-    used,
-  });
-
-  meter.lastReadings = meter.lastReadings || {};
-  meter.lastReadings[roomNumber] = curr;
-
-  if (window.saveAppState) window.saveAppState();
-
-  roomMeterMsg.style.color = "#16a34a";
-  roomMeterMsg.innerText = `Đã chốt số nước: dùng ${used} (từ ${prev} → ${curr}).`;
-
-  renderRoomDetail(mainContent, appState, roomNumber);
-};
   // Tạo hóa đơn
   const createInvoiceBtn = document.getElementById("create-invoice-btn");
   if (createInvoiceBtn) {
@@ -1091,13 +1162,11 @@ function upsertMeterHistory(type, record) {
       }
 
       if (checkoutMsg) {
-        checkoutMsg.style.color = "#6b7280";
-        checkoutMsg.innerText = "Chức năng trả phòng chưa được bật (thiếu checkout.js).";
-      } else {
-        alert("Chức năng trả phòng chưa được bật (thiếu checkout.js).");
+        checkoutMsg.style.color = "#b91c1c";
+        checkoutMsg.innerText = "Thiếu checkout.js.";
       }
     };
   }
-} // đóng function renderRoomDetail
+}
 
 window.renderRoomDetail = renderRoomDetail;
