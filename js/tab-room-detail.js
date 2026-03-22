@@ -94,6 +94,52 @@ function renderRoomDetail(mainContent, appState, roomNumber) {
     return { lastRead, lastHistory };
   }
 
+  function getAutoPrevReading(type, roomNumber) {
+  const meter = appState.meters[type] || { lastReadings: {}, history: [] };
+
+  // Ưu tiên số đang lưu
+  if (meter.lastReadings && meter.lastReadings[roomNumber] != null) {
+    return Number(meter.lastReadings[roomNumber]) || 0;
+  }
+
+  // Nếu chưa có thì lấy curr của lần chốt gần nhất
+  const hist = Array.isArray(meter.history) ? meter.history : [];
+  for (let i = hist.length - 1; i >= 0; i--) {
+    const h = hist[i];
+    if (String(h.roomNumber) === String(roomNumber)) {
+      return Number(h.curr || 0);
+    }
+  }
+
+  return 0;
+}
+
+function upsertMeterHistory(type, record) {
+  const meter = appState.meters[type];
+  meter.history = Array.isArray(meter.history) ? meter.history : [];
+
+  // Nếu đã có bản ghi cùng phòng + cùng kỳ + cùng ngày thì cập nhật đè
+  const idx = meter.history.findIndex(
+    (h) =>
+      String(h.roomNumber) === String(record.roomNumber) &&
+      String(h.period || "") === String(record.period || "") &&
+      String(h.date || "") === String(record.date || "")
+  );
+
+  if (idx >= 0) {
+    meter.history[idx] = {
+      ...meter.history[idx],
+      ...record,
+      savedAt: new Date().toISOString(),
+    };
+  } else {
+    meter.history.push({
+      ...record,
+      savedAt: new Date().toISOString(),
+    });
+  }
+}
+  
   const elecInfo = getLastMeterInfo("electricity");
   const waterInfo = getLastMeterInfo("water");
 
@@ -490,7 +536,7 @@ function renderRoomDetail(mainContent, appState, roomNumber) {
             }
           </div>
           <div style="font-size:12px; color:#4b5563; margin-bottom:4px;">
-            Số công tơ đang lưu: ${elecInfo.lastRead != null ? elecInfo.lastRead : 0}
+           Số công tơ đang lưu: ${getAutoPrevReading("electricity", roomNumber)}
           </div>
 
           <div style="margin-top:4px; font-size:13px;">
@@ -501,7 +547,7 @@ function renderRoomDetail(mainContent, appState, roomNumber) {
             <input id="elec-date-room" type="date" value="${defaultDate}" style="padding:4px; margin-bottom:4px;">
             <br>
             <label>Số trước:</label><br>
-            <input type="number" value="${elecInfo.lastRead != null ? elecInfo.lastRead : 0}" disabled
+            <input type="number" value="${getAutoPrevReading("electricity", roomNumber)}" disabled
               style="padding:4px; margin-bottom:4px; width:120px; background:#f3f4f6;">
             <br>
             <label>Số hiện tại:</label><br>
@@ -526,7 +572,7 @@ function renderRoomDetail(mainContent, appState, roomNumber) {
             }
           </div>
           <div style="font-size:12px; color:#4b5563; margin-bottom:4px;">
-            Số công tơ đang lưu: ${waterInfo.lastRead != null ? waterInfo.lastRead : 0}
+            Số công tơ đang lưu: ${getAutoPrevReading("water", roomNumber)}
           </div>
 
           <div style="margin-top:4px; font-size:13px;">
@@ -537,7 +583,7 @@ function renderRoomDetail(mainContent, appState, roomNumber) {
             <input id="water-date-room" type="date" value="${defaultDate}" style="padding:4px; margin-bottom:4px;">
             <br>
             <label>Số trước:</label><br>
-            <input type="number" value="${waterInfo.lastRead != null ? waterInfo.lastRead : 0}" disabled
+            <input type="number" value="${getAutoPrevReading("water", roomNumber)}" disabled
               style="padding:4px; margin-bottom:4px; width:120px; background:#f3f4f6;">
             <br>
             <label>Số hiện tại:</label><br>
@@ -926,49 +972,47 @@ function renderRoomDetail(mainContent, appState, roomNumber) {
   const elecSaveBtn = document.getElementById("save-elec-room-btn");
 
   elecSaveBtn.onclick = () => {
-    const period = elecPeriodInput.value || defaultMonth;
-    const date = elecDateInput.value || defaultDate;
-    const currStr = elecCurrentInput.value.trim();
+  const period = elecPeriodInput.value || defaultMonth;
+  const date = elecDateInput.value || defaultDate;
+  const currStr = (elecCurrentInput.value || "").trim();
 
-    const meter = appState.meters.electricity;
-    const prev =
-      meter.lastReadings && meter.lastReadings[roomNumber] != null ? Number(meter.lastReadings[roomNumber]) : 0;
+  const meter = appState.meters.electricity;
+  const prev = getAutoPrevReading("electricity", roomNumber);
 
-    if (!currStr) {
-      roomMeterMsg.style.color = "#b91c1c";
-      roomMeterMsg.innerText = "Chưa nhập số điện hiện tại.";
-      return;
-    }
+  if (!currStr) {
+    roomMeterMsg.style.color = "#b91c1c";
+    roomMeterMsg.innerText = "Chưa nhập số điện hiện tại.";
+    return;
+  }
 
-    const curr = Number(currStr);
-    if (isNaN(curr) || curr < prev) {
-      roomMeterMsg.style.color = "#b91c1c";
-      roomMeterMsg.innerText = "Số điện hiện tại không hợp lệ (nhỏ hơn số trước).";
-      return;
-    }
+  const curr = Number(currStr);
+  if (isNaN(curr) || curr < prev) {
+    roomMeterMsg.style.color = "#b91c1c";
+    roomMeterMsg.innerText = `Số điện hiện tại không hợp lệ. Số mới phải >= số cũ (${prev}).`;
+    return;
+  }
 
-    const used = curr - prev;
-    meter.history = meter.history || [];
-    meter.history.push({
-  period,
-  date,
-  roomNumber,
-  prev,
-  curr,
-  used,
-  savedAt: new Date().toISOString()
-});
+  const used = curr - prev;
 
-    meter.lastReadings = meter.lastReadings || {};
-    meter.lastReadings[roomNumber] = curr;
+  upsertMeterHistory("electricity", {
+    period,
+    date,
+    roomNumber,
+    prev,
+    curr,
+    used,
+  });
 
-    if (window.saveAppState) window.saveAppState();
+  meter.lastReadings = meter.lastReadings || {};
+  meter.lastReadings[roomNumber] = curr;
 
-    roomMeterMsg.style.color = "#16a34a";
-    roomMeterMsg.innerText = `Đã chốt số điện: dùng ${used} (từ ${prev} → ${curr}).`;
+  if (window.saveAppState) window.saveAppState();
 
-    renderRoomDetail(mainContent, appState, roomNumber);
-  };
+  roomMeterMsg.style.color = "#16a34a";
+  roomMeterMsg.innerText = `Đã chốt số điện: dùng ${used} (từ ${prev} → ${curr}).`;
+
+  renderRoomDetail(mainContent, appState, roomNumber);
+};
 
   // Chốt nước cho phòng
   const waterPeriodInput = document.getElementById("water-period-room");
@@ -977,50 +1021,47 @@ function renderRoomDetail(mainContent, appState, roomNumber) {
   const waterSaveBtn = document.getElementById("save-water-room-btn");
 
   waterSaveBtn.onclick = () => {
-    const period = waterPeriodInput.value || defaultMonth;
-    const date = waterDateInput.value || defaultDate;
-    const currStr = waterCurrentInput.value.trim();
+  const period = waterPeriodInput.value || defaultMonth;
+  const date = waterDateInput.value || defaultDate;
+  const currStr = (waterCurrentInput.value || "").trim();
 
-    const meter = appState.meters.water;
-    const prev =
-      meter.lastReadings && meter.lastReadings[roomNumber] != null ? Number(meter.lastReadings[roomNumber]) : 0;
+  const meter = appState.meters.water;
+  const prev = getAutoPrevReading("water", roomNumber);
 
-    if (!currStr) {
-      roomMeterMsg.style.color = "#b91c1c";
-      roomMeterMsg.innerText = "Chưa nhập số nước hiện tại.";
-      return;
-    }
+  if (!currStr) {
+    roomMeterMsg.style.color = "#b91c1c";
+    roomMeterMsg.innerText = "Chưa nhập số nước hiện tại.";
+    return;
+  }
 
-    const curr = Number(currStr);
-    if (isNaN(curr) || curr < prev) {
-      roomMeterMsg.style.color = "#b91c1c";
-      roomMeterMsg.innerText = "Số nước hiện tại không hợp lệ (nhỏ hơn số trước).";
-      return;
-    }
+  const curr = Number(currStr);
+  if (isNaN(curr) || curr < prev) {
+    roomMeterMsg.style.color = "#b91c1c";
+    roomMeterMsg.innerText = `Số nước hiện tại không hợp lệ. Số mới phải >= số cũ (${prev}).`;
+    return;
+  }
 
-    const used = curr - prev;
-    meter.history = meter.history || [];
-    meter.history.push({
-  period,
-  date,
-  roomNumber,
-  prev,
-  curr,
-  used,
-  savedAt: new Date().toISOString()
-});
+  const used = curr - prev;
 
-    meter.lastReadings = meter.lastReadings || {};
-    meter.lastReadings[roomNumber] = curr;
+  upsertMeterHistory("water", {
+    period,
+    date,
+    roomNumber,
+    prev,
+    curr,
+    used,
+  });
 
-    if (window.saveAppState) window.saveAppState();
+  meter.lastReadings = meter.lastReadings || {};
+  meter.lastReadings[roomNumber] = curr;
 
-    roomMeterMsg.style.color = "#16a34a";
-    roomMeterMsg.innerText = `Đã chốt số nước: dùng ${used} (từ ${prev} → ${curr}).`;
+  if (window.saveAppState) window.saveAppState();
 
-    renderRoomDetail(mainContent, appState, roomNumber);
-  };
+  roomMeterMsg.style.color = "#16a34a";
+  roomMeterMsg.innerText = `Đã chốt số nước: dùng ${used} (từ ${prev} → ${curr}).`;
 
+  renderRoomDetail(mainContent, appState, roomNumber);
+};
   // Tạo hóa đơn
   const createInvoiceBtn = document.getElementById("create-invoice-btn");
   if (createInvoiceBtn) {
