@@ -114,6 +114,11 @@
     return owner?.fullName || room.tenants[0]?.fullName || "";
   }
 
+  function getRoomDeposit(room) {
+    const n = Number(room?.deposit || 0);
+    return Number.isNaN(n) ? 0 : n;
+  }
+
   function normalizeText(v) {
     return String(v || "")
       .toLowerCase()
@@ -427,7 +432,7 @@
     return { close, overlay };
   }
 
-  function buildPrintA5Html({ title, room, fromDate, toDate, tenantName, lines }) {
+  function buildPrintA5Html({ title, room, fromDate, toDate, tenantName, lines, depositAmount = 0 }) {
     const sum = lines.reduce((a, l) => a + Number(l.total || l.amount || 0), 0);
 
     const rows = lines
@@ -493,6 +498,7 @@
 
   <div class="meta">
     <div><b>Phòng số:</b> ${escapeHtml(room.number)}</div>
+    <div><b>Tiền cọc:</b> ${fmtMoney(depositAmount)} đ</div>
     <div><b>Thời gian:</b> từ ${escapeHtml(fromDate)} đến ${escapeHtml(toDate)}</div>
     <div><b>Người thuê:</b> ${escapeHtml(tenantName || "(chưa có)")}</div>
   </div>
@@ -540,6 +546,7 @@
     title,
     printHtml,
     metaType = "monthly",
+    depositAmount = 0,
   }) {
     const totalAmount = lines.reduce((a, l) => a + Number(l.total || l.amount || 0), 0);
     const invoiceDate = toDate || todayISO();
@@ -562,6 +569,7 @@
       deleted: false,
       meta: {
         type: metaType,
+        depositAmount: Number(depositAmount || 0),
       },
     };
 
@@ -589,8 +597,6 @@
     if (!room) return alert("Không tìm thấy phòng: " + roomNumber);
 
     const tenantName = getFirstTenantName(room);
-
-    // FIX: lấy kỳ gần nhất đã chốt của chính phòng này
     const latestYM = getLatestMeterPeriodForRoom(appState, roomNumber);
     const defaultFrom = firstDayOfMonth(latestYM);
     const defaultTo = lastDayOfMonth(latestYM);
@@ -620,6 +626,13 @@
         <div>
           <label style="font-size:13px;">Tiêu đề</label><br>
           <input id="inv-title" type="text" value="Hóa đơn xuất phòng ${escapeHtml(room.number)} kỳ ${latestYM}" style="padding:8px; width:100%;">
+        </div>
+      </div>
+
+      <div style="margin-top:10px; display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:12px;">
+        <div>
+          <label style="font-size:13px;">Tiền cọc hiện tại</label><br>
+          <input id="inv-deposit-view" type="text" value="${fmtMoney(getRoomDeposit(room))} đ" disabled style="padding:8px; width:100%; background:#f3f4f6;">
         </div>
       </div>
 
@@ -655,6 +668,8 @@
         `Hóa đơn xuất phòng ${room.number} kỳ ${latestYM}`;
 
       const lines = buildInvoiceLines(room, appState, fromDate, toDate);
+      const depositAmount = getRoomDeposit(room);
+
       const printHtml = buildPrintA5Html({
         title: titleVal,
         room,
@@ -662,6 +677,7 @@
         toDate,
         tenantName: tenantNameVal,
         lines,
+        depositAmount,
       });
 
       return {
@@ -672,6 +688,7 @@
         title: titleVal,
         lines,
         printHtml,
+        depositAmount,
       };
     }
 
@@ -682,7 +699,10 @@
       previewBox.innerHTML = `
         <div style="font-weight:800; margin-bottom:8px;">${escapeHtml(draft.title)}</div>
         <div style="font-size:13px; color:#4b5563; margin-bottom:8px;">
-          Phòng ${escapeHtml(draft.room.number)} | ${escapeHtml(draft.fromDate)} → ${escapeHtml(draft.toDate)} | Người thuê: ${escapeHtml(draft.tenantName || "(chưa có)")}
+          Phòng ${escapeHtml(draft.room.number)} |
+          Cọc: ${fmtMoney(draft.depositAmount)} đ |
+          ${escapeHtml(draft.fromDate)} → ${escapeHtml(draft.toDate)} |
+          Người thuê: ${escapeHtml(draft.tenantName || "(chưa có)")}
         </div>
 
         <table style="width:100%; border-collapse:collapse; font-size:13px;">
@@ -742,6 +762,7 @@
           title: draft.title,
           printHtml: draft.printHtml,
           metaType: "monthly",
+          depositAmount: draft.depositAmount,
         });
 
         msgEl.style.color = "#16a34a";
@@ -763,6 +784,7 @@
           title: draft.title,
           printHtml: draft.printHtml,
           metaType: "monthly",
+          depositAmount: draft.depositAmount,
         });
 
         openPrintWindow(draft.printHtml);
