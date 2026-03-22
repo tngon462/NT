@@ -1106,6 +1106,12 @@
     if (saveBtn) {
       saveBtn.onclick = () => {
         const draft = buildDraft();
+        if (draft.fromDate > draft.toDate) {
+          msgEl.style.color = "#b91c1c";
+          msgEl.innerText = "Ngày bắt đầu không được lớn hơn ngày kết thúc.";
+          return;
+        }
+
         saveInvoiceToState({
           appState,
           room: draft.room,
@@ -1128,6 +1134,12 @@
     if (printBtn) {
       printBtn.onclick = () => {
         const draft = buildDraft();
+        if (draft.fromDate > draft.toDate) {
+          msgEl.style.color = "#b91c1c";
+          msgEl.innerText = "Ngày bắt đầu không được lớn hơn ngày kết thúc.";
+          return;
+        }
+
         const saved = saveInvoiceToState({
           appState,
           room: draft.room,
@@ -1160,14 +1172,25 @@
       return;
     }
 
-    const drafts = rooms.map((room) => {
-      const tenantName = getFirstTenantName(room);
-      const latestYM = getLatestMeterPeriodForRoom(appState, room.number);
-      const fromDate = firstDayOfMonth(latestYM);
-      const toDate = lastDayOfMonth(latestYM);
-      const title = `Hóa đơn xuất phòng ${room.number} kỳ ${latestYM}`;
-      return buildInvoiceDraft(room, appState, fromDate, toDate, tenantName, title);
-    });
+    const today = todayISO();
+    const currentYM = ymOf(today);
+    let currentFromDate = firstDayOfMonth(currentYM);
+    let currentToDate = today;
+    let currentTitleTemplate = "Hóa đơn phòng {room} từ {from} đến {to}";
+
+    function buildDrafts(fromDate, toDate, titleTemplate) {
+      return rooms.map((room) => {
+        const tenantName = getFirstTenantName(room);
+        const title = String(titleTemplate || "Hóa đơn phòng {room}")
+          .replaceAll("{room}", String(room.number))
+          .replaceAll("{from}", fromDate)
+          .replaceAll("{to}", toDate);
+
+        return buildInvoiceDraft(room, appState, fromDate, toDate, tenantName, title);
+      });
+    }
+
+    let drafts = buildDrafts(currentFromDate, currentToDate, currentTitleTemplate);
 
     const { close } = openModal(`
       <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap;">
@@ -1175,7 +1198,33 @@
         <button id="bulk-close-btn" style="padding:6px 10px;">✖ Đóng</button>
       </div>
 
-      <div style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap;">
+      <div style="margin-top:12px; display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:12px;">
+        <div>
+          <label style="font-size:13px;">Từ ngày</label><br>
+          <input id="bulk-invoice-from-date" type="date" value="${currentFromDate}" style="padding:8px; width:100%;">
+        </div>
+
+        <div>
+          <label style="font-size:13px;">Đến ngày</label><br>
+          <input id="bulk-invoice-to-date" type="date" value="${currentToDate}" style="padding:8px; width:100%;">
+        </div>
+
+        <div style="grid-column:1 / -1;">
+          <label style="font-size:13px;">Tiêu đề mẫu</label><br>
+          <input
+            id="bulk-invoice-title-template"
+            type="text"
+            value="${escapeHtml(currentTitleTemplate)}"
+            style="padding:8px; width:100%;"
+          >
+          <div style="font-size:12px; color:#6b7280; margin-top:4px;">
+            Dùng được: <b>{room}</b>, <b>{from}</b>, <b>{to}</b>
+          </div>
+        </div>
+      </div>
+
+      <div style="margin-top:12px; display:flex; gap:8px; flex-wrap:wrap;">
+        <button id="bulk-refresh-btn" style="padding:8px 12px;">🔄 Cập nhật danh sách</button>
         <button id="bulk-create-btn" style="padding:8px 12px; font-weight:700;">💾 Tạo tất cả hóa đơn</button>
         <button id="bulk-print-all-btn" style="padding:8px 12px;">🖨 In toàn bộ</button>
         <button id="bulk-pdf-all-btn" style="padding:8px 12px;">⬇ Lưu toàn bộ PDF</button>
@@ -1186,6 +1235,10 @@
     `);
 
     const closeBtn = document.getElementById("bulk-close-btn");
+    const fromInput = document.getElementById("bulk-invoice-from-date");
+    const toInput = document.getElementById("bulk-invoice-to-date");
+    const titleTemplateInput = document.getElementById("bulk-invoice-title-template");
+    const refreshBtn = document.getElementById("bulk-refresh-btn");
     const createBtn = document.getElementById("bulk-create-btn");
     const printAllBtn = document.getElementById("bulk-print-all-btn");
     const pdfAllBtn = document.getElementById("bulk-pdf-all-btn");
@@ -1194,7 +1247,36 @@
 
     if (closeBtn) closeBtn.onclick = close;
 
+    function rebuildDraftsFromInputs() {
+      const fromDate = toISO10(fromInput?.value) || currentFromDate;
+      const toDate = toISO10(toInput?.value) || currentToDate;
+      const titleTemplate =
+        (titleTemplateInput?.value || "").trim() || "Hóa đơn phòng {room} từ {from} đến {to}";
+
+      if (fromDate > toDate) {
+        msgEl.style.color = "#b91c1c";
+        msgEl.innerText = "Ngày bắt đầu không được lớn hơn ngày kết thúc.";
+        return false;
+      }
+
+      currentFromDate = fromDate;
+      currentToDate = toDate;
+      currentTitleTemplate = titleTemplate;
+      drafts = buildDrafts(currentFromDate, currentToDate, currentTitleTemplate);
+
+      renderBatchPreviewList(previewBox, drafts);
+      msgEl.style.color = "#16a34a";
+      msgEl.innerText = `Đã cập nhật danh sách hóa đơn theo khoảng ${currentFromDate} → ${currentToDate}.`;
+      return true;
+    }
+
     renderBatchPreviewList(previewBox, drafts);
+
+    if (refreshBtn) {
+      refreshBtn.onclick = () => {
+        rebuildDraftsFromInputs();
+      };
+    }
 
     previewBox.addEventListener("click", (e) => {
       const btn = e.target.closest("button[data-preview-index]");
@@ -1206,6 +1288,9 @@
     });
 
     function createAllInvoices() {
+      const ok = rebuildDraftsFromInputs();
+      if (!ok) return [];
+
       const created = drafts.map((draft) => {
         return saveInvoiceToState({
           appState,
@@ -1227,27 +1312,37 @@
     if (createBtn) {
       createBtn.onclick = () => {
         const created = createAllInvoices();
+        if (!created.length) return;
+
         msgEl.style.color = "#16a34a";
-        msgEl.innerText = `Đã tạo ${created.length} hóa đơn.`;
+        msgEl.innerText = `Đã tạo ${created.length} hóa đơn (${currentFromDate} → ${currentToDate}).`;
       };
     }
 
     if (printAllBtn) {
       printAllBtn.onclick = () => {
         const created = createAllInvoices();
-        const html = buildBatchCombinedHtml(created.length ? created : drafts);
+        const useList = created.length ? created : drafts;
+        if (!useList.length) return;
+
+        const html = buildBatchCombinedHtml(useList);
         openPrintWindow(html);
+
         msgEl.style.color = "#16a34a";
-        msgEl.innerText = `Đã mở cửa sổ in toàn bộ ${created.length || drafts.length} hóa đơn.`;
+        msgEl.innerText = `Đã mở cửa sổ in toàn bộ ${useList.length} hóa đơn.`;
       };
     }
 
     if (pdfAllBtn) {
       pdfAllBtn.onclick = async () => {
         const created = createAllInvoices();
-        await saveAllInvoicesPdf(created.length ? created : drafts);
+        const useList = created.length ? created : drafts;
+        if (!useList.length) return;
+
+        await saveAllInvoicesPdf(useList);
+
         msgEl.style.color = "#16a34a";
-        msgEl.innerText = `Đã xử lý lưu PDF cho ${created.length || drafts.length} hóa đơn.`;
+        msgEl.innerText = `Đã xử lý lưu PDF cho ${useList.length} hóa đơn.`;
       };
     }
   }
