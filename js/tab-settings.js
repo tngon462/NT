@@ -33,7 +33,7 @@ function renderSettings(mainContent, appState) {
     editingRoom && editingRoom.number
       ? deviceAssignments
           .filter((a) => a.roomNumber === editingRoom.number)
-          .map((a) => a.deviceId)
+          (a) => a.deviceId)
       : [];
 
   const devicesHtml =
@@ -44,7 +44,7 @@ function renderSettings(mainContent, appState) {
       : `
       <div style="display:flex; flex-direction:column; gap:4px; margin-top:4px;">
         ${deviceWithRemain
-          .map((d) => {
+          (d) => {
             const isChecked = editingRoom
               ? assignedDeviceIdsForEditing.includes(d.id)
               : false;
@@ -140,28 +140,29 @@ function renderSettings(mainContent, appState) {
           ? `<p>Chưa có phòng nào.</p>`
           : `
         <ul>
-          ${rooms
-            .map(
-              (r, idx) =>
-                <li>
-  Phòng ${r.number} - Giá: ${r.price.toLocaleString()} đ
+          rooms
+  .map(
+    (r, idx) => `
+      <li>
+        Phòng ${r.number} - Giá: ${r.price.toLocaleString()} đ
 
-  <button class="edit-room-btn" data-room-index="${idx}"
-    style="margin-left:8px; padding:2px 8px; font-size:11px;">
-    Sửa
-  </button>
+        <button class="edit-room-btn" data-room-index="${idx}"
+          style="margin-left:8px; padding:2px 8px; font-size:11px;">
+          Sửa
+        </button>
 
-  ${
-    !r.tenants || r.tenants.length === 0
-      ? `<button class="delete-room-btn" data-room-index="${idx}"
-          style="margin-left:6px; padding:2px 8px; font-size:11px; background:#ef4444; color:white;">
-          Xóa
-        </button>`
-      : ""
-  }
-</li>
-            )
-            .join("")}
+        ${
+          !r.tenants || r.tenants.length === 0
+            ? `<button class="delete-room-btn" data-room-index="${idx}"
+                style="margin-left:6px; padding:2px 8px; font-size:11px; background:#ef4444; color:white;">
+                Xóa
+              </button>`
+            : ""
+        }
+      </li>
+    `
+  )
+  .join("")
         </ul>
       `
       }
