@@ -73,6 +73,8 @@
   }
 
   function ensureState(appState) {
+    if (!appState || typeof appState !== "object") return;
+
     if (!Array.isArray(appState.rooms)) appState.rooms = [];
     if (!Array.isArray(appState.costs)) appState.costs = [];
     if (!Array.isArray(appState.invoices)) appState.invoices = [];
@@ -104,8 +106,25 @@
     }
   }
 
+  function normalizeText(v) {
+    return String(v || "")
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .trim();
+  }
+
   function getRoom(appState, roomNumber) {
     return (appState.rooms || []).find((r) => String(r.number) === String(roomNumber));
+  }
+
+  function isRoomOccupied(room) {
+    if (!room) return false;
+    return Array.isArray(room.tenants) && room.tenants.length > 0;
+  }
+
+  function getOccupiedRooms(appState) {
+    return (appState.rooms || []).filter(isRoomOccupied);
   }
 
   function getFirstTenantName(room) {
@@ -117,14 +136,6 @@
   function getRoomDeposit(room) {
     const n = Number(room?.deposit || 0);
     return Number.isNaN(n) ? 0 : n;
-  }
-
-  function normalizeText(v) {
-    return String(v || "")
-      .toLowerCase()
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .trim();
   }
 
   function getUtilityConfig(appState, type) {
@@ -398,41 +409,13 @@
     return lines;
   }
 
-  function openModal(html) {
-    const overlay = document.createElement("div");
-    overlay.style.position = "fixed";
-    overlay.style.inset = "0";
-    overlay.style.background = "rgba(0,0,0,.35)";
-    overlay.style.zIndex = "9999";
-    overlay.style.display = "flex";
-    overlay.style.alignItems = "center";
-    overlay.style.justifyContent = "center";
-    overlay.innerHTML = `
-      <div style="background:#fff; width:min(980px, 96vw); max-height:92vh; overflow:auto; border-radius:14px; padding:14px; box-shadow:0 10px 30px rgba(0,0,0,.25);">
-        ${html}
-      </div>
-    `;
-    document.body.appendChild(overlay);
-
-    function close() {
-      if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
-      document.removeEventListener("keydown", onKey);
-    }
-
-    function onKey(e) {
-      if (e.key === "Escape") close();
-    }
-
-    document.addEventListener("keydown", onKey);
-
-    overlay.addEventListener("click", (e) => {
-      if (e.target === overlay) close();
-    });
-
-    return { close, overlay };
+  function buildInvoiceLines(room, appState, fromDate, toDate) {
+    const baseLines = buildBaseLines(room, appState, fromDate, toDate);
+    const utilityLines = buildUtilityLines(appState, room.number, ymOf(toDate), toDate);
+    return [...baseLines, ...utilityLines];
   }
 
-  function buildPrintA5Html({ title, room, fromDate, toDate, tenantName, lines, depositAmount = 0 }) {
+  function buildPrintA5Html({ title, room, fromDate, toDate, tenantName, lines, depositAmount = 0, code = "" }) {
     const sum = lines.reduce((a, l) => a + Number(l.total || l.amount || 0), 0);
 
     const rows = lines
@@ -479,6 +462,7 @@
     .sum-row { display:flex; justify-content:space-between; border:1px solid #333; padding:6px; }
     .sum-row .label { font-weight:900; }
     .sum-row .value { font-weight:900; font-size:13px; }
+    .code { font-size: 11px; color:#555; margin-top:4px; }
     @media print { .toolbar { display:none; } }
   </style>
 </head>
@@ -489,7 +473,8 @@
   </div>
 
   <div class="header">
-    <div class="title">${escapeHtml(title)}</div>
+    <div class="title">${escapeHtml(title || BRAND.title)}</div>
+    ${code ? `<div class="code">Mã hóa đơn: ${escapeHtml(code)}</div>` : ""}
     <div class="sub">
       <div><b>SĐT:</b> ${escapeHtml(BRAND.phone)}</div>
       <div><b>STK:</b> ${escapeHtml(BRAND.bankLine)}</div>
@@ -530,7 +515,10 @@
 
   function openPrintWindow(html) {
     const w = window.open("", "_blank");
-    if (!w) return alert("Trình duyệt đang chặn pop-up. Cho phép pop-up để in phiếu.");
+    if (!w) {
+      alert("Trình duyệt đang chặn pop-up. Cho phép pop-up để in phiếu.");
+      return;
+    }
     w.document.open();
     w.document.write(html);
     w.document.close();
@@ -573,21 +561,242 @@
       },
     };
 
+    let saved;
     if (typeof window.addInvoice === "function") {
-      return window.addInvoice(invoice);
+      saved = window.addInvoice(invoice);
+    } else {
+      if (!Array.isArray(appState.invoices)) appState.invoices = [];
+      invoice.id = `inv_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+      appState.invoices.unshift(invoice);
+      if (window.saveAppState) window.saveAppState();
+      saved = invoice;
     }
 
-    if (!Array.isArray(appState.invoices)) appState.invoices = [];
-    invoice.id = `inv_${Date.now()}_${Math.random().toString(16).slice(2)}`;
-    appState.invoices.unshift(invoice);
-    if (window.saveAppState) window.saveAppState();
-    return invoice;
+    if (saved) {
+      saved.meta = saved.meta || {};
+      saved.meta.depositAmount = Number(depositAmount || 0);
+      if (!saved.printHtml) saved.printHtml = printHtml;
+      if (window.saveAppState) window.saveAppState();
+    }
+
+    return saved;
   }
 
-  function buildInvoiceLines(room, appState, fromDate, toDate) {
-    const baseLines = buildBaseLines(room, appState, fromDate, toDate);
-    const utilityLines = buildUtilityLines(appState, room.number, ymOf(toDate), toDate);
-    return [...baseLines, ...utilityLines];
+  function buildInvoiceDraft(room, appState, fromDate, toDate, tenantName, title) {
+    const lines = buildInvoiceLines(room, appState, fromDate, toDate);
+    const depositAmount = getRoomDeposit(room);
+    const printHtml = buildPrintA5Html({
+      title,
+      room,
+      fromDate,
+      toDate,
+      tenantName,
+      lines,
+      depositAmount,
+    });
+
+    return {
+      room,
+      tenantName,
+      fromDate,
+      toDate,
+      title,
+      lines,
+      depositAmount,
+      printHtml,
+    };
+  }
+
+  function buildBatchCombinedHtml(invoices) {
+    const pages = invoices.map((inv) => {
+      const html = inv.printHtml && String(inv.printHtml).trim();
+      if (html) {
+        const bodyMatch = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+        const body = bodyMatch ? bodyMatch[1] : html;
+        return `<div class="page">${body}</div>`;
+      }
+
+      const room = { number: inv.roomNumber };
+      return `
+        <div class="page">
+          <div style="padding:10mm; font-family:Arial,sans-serif;">
+            <h2 style="text-align:center; margin:0 0 10px 0;">${escapeHtml(inv.title || BRAND.title)}</h2>
+            <div><b>Phòng:</b> ${escapeHtml(inv.roomNumber)}</div>
+            <div><b>Người thuê:</b> ${escapeHtml(inv.tenantName || "")}</div>
+            <div><b>Ngày tạo:</b> ${escapeHtml(inv.issueDate || "")}</div>
+            <div><b>Tổng tiền:</b> ${fmtMoney(inv.total || 0)} đ</div>
+          </div>
+        </div>
+      `;
+    }).join("");
+
+    return `
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <title>Toàn bộ hóa đơn</title>
+  <style>
+    @page { size: A5 portrait; margin: 8mm; }
+    body { margin:0; font-family: Arial, sans-serif; }
+    .toolbar {
+      position: sticky;
+      top: 0;
+      background: #fff;
+      z-index: 9999;
+      border-bottom: 1px solid #ddd;
+      padding: 8px;
+      display:flex;
+      gap:8px;
+    }
+    .toolbar button { padding: 6px 10px; cursor:pointer; }
+    .page { page-break-after: always; }
+    .page:last-child { page-break-after: auto; }
+    @media print { .toolbar { display:none; } }
+  </style>
+</head>
+<body>
+  <div class="toolbar">
+    <button onclick="window.print()">🖨 In / Save PDF</button>
+    <button onclick="window.close()">✖ Đóng</button>
+  </div>
+  ${pages}
+</body>
+</html>
+    `.trim();
+  }
+
+  async function saveAllInvoicesPdf(invoices) {
+    if (!Array.isArray(invoices) || !invoices.length) {
+      alert("Không có hóa đơn để lưu PDF.");
+      return;
+    }
+
+    if (!window.html2pdf) {
+      const html = buildBatchCombinedHtml(invoices);
+      openPrintWindow(html);
+      alert(
+        "Chưa có thư viện html2pdf nên em mở cửa sổ in toàn bộ.\n" +
+        "Sếp chọn Save as PDF để lưu.\n\n" +
+        "Muốn tự tải file PDF bằng nút này thì thêm 2 script html2canvas + html2pdf vào nhatro.html."
+      );
+      return;
+    }
+
+    const wrapper = document.createElement("div");
+    wrapper.style.background = "#fff";
+    wrapper.innerHTML = invoices.map((inv) => {
+      const html = inv.printHtml && String(inv.printHtml).trim();
+      if (html) {
+        const bodyMatch = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+        const body = bodyMatch ? bodyMatch[1] : html;
+        return `<div style="page-break-after:always;">${body}</div>`;
+      }
+      return `<div style="page-break-after:always; padding:10mm; font-family:Arial,sans-serif;">
+        <h2>${escapeHtml(inv.title || BRAND.title)}</h2>
+        <div>Phòng: ${escapeHtml(inv.roomNumber)}</div>
+        <div>Người thuê: ${escapeHtml(inv.tenantName || "")}</div>
+        <div>Tổng tiền: ${fmtMoney(inv.total || 0)} đ</div>
+      </div>`;
+    }).join("");
+
+    document.body.appendChild(wrapper);
+
+    try {
+      await window.html2pdf()
+        .set({
+          margin: 0,
+          filename: `hoa-don-phong-tro-${todayISO()}.pdf`,
+          image: { type: "jpeg", quality: 0.98 },
+          html2canvas: { scale: 2, useCORS: true },
+          jsPDF: { unit: "mm", format: "a5", orientation: "portrait" },
+          pagebreak: { mode: ["css", "legacy"] },
+        })
+        .from(wrapper)
+        .save();
+    } catch (err) {
+      console.error(err);
+      alert("Lưu PDF lỗi. Em sẽ mở cửa sổ in để sếp Save as PDF.");
+      openPrintWindow(buildBatchCombinedHtml(invoices));
+    } finally {
+      wrapper.remove();
+    }
+  }
+
+  function openModal(html) {
+    const overlay = document.createElement("div");
+    overlay.style.position = "fixed";
+    overlay.style.inset = "0";
+    overlay.style.background = "rgba(0,0,0,.35)";
+    overlay.style.zIndex = "9999";
+    overlay.style.display = "flex";
+    overlay.style.alignItems = "center";
+    overlay.style.justifyContent = "center";
+    overlay.innerHTML = `
+      <div style="background:#fff; width:min(1100px, 96vw); max-height:92vh; overflow:auto; border-radius:14px; padding:14px; box-shadow:0 10px 30px rgba(0,0,0,.25);">
+        ${html}
+      </div>
+    `;
+    document.body.appendChild(overlay);
+
+    function close() {
+      if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+      document.removeEventListener("keydown", onKey);
+    }
+
+    function onKey(e) {
+      if (e.key === "Escape") close();
+    }
+
+    document.addEventListener("keydown", onKey);
+    overlay.addEventListener("click", (e) => {
+      if (e.target === overlay) close();
+    });
+
+    return { close, overlay };
+  }
+
+  function renderBatchPreviewList(container, drafts) {
+    const total = drafts.reduce((a, d) => {
+      return a + d.lines.reduce((s, l) => s + Number(l.total || l.amount || 0), 0);
+    }, 0);
+
+    container.innerHTML = `
+      <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:10px;">
+        <div style="font-weight:800;">Danh sách hóa đơn sẽ tạo: ${drafts.length}</div>
+        <div style="font-weight:800; color:#1d4ed8;">Tổng cộng: ${fmtMoney(total)} đ</div>
+      </div>
+
+      <div style="overflow:auto; border:1px solid #e5e7eb; border-radius:12px;">
+        <table style="width:100%; border-collapse:collapse; font-size:13px;">
+          <thead>
+            <tr style="background:#f3f4f6;">
+              <th style="padding:8px; border-bottom:1px solid #e5e7eb; text-align:left;">Phòng</th>
+              <th style="padding:8px; border-bottom:1px solid #e5e7eb; text-align:left;">Người thuê</th>
+              <th style="padding:8px; border-bottom:1px solid #e5e7eb; text-align:left;">Kỳ</th>
+              <th style="padding:8px; border-bottom:1px solid #e5e7eb; text-align:right;">Tổng</th>
+              <th style="padding:8px; border-bottom:1px solid #e5e7eb; text-align:right;">Thao tác</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${drafts.map((d, idx) => {
+              const totalRow = d.lines.reduce((s, l) => s + Number(l.total || l.amount || 0), 0);
+              return `
+                <tr>
+                  <td style="padding:8px; border-bottom:1px solid #f1f5f9;"><b>${escapeHtml(d.room.number)}</b></td>
+                  <td style="padding:8px; border-bottom:1px solid #f1f5f9;">${escapeHtml(d.tenantName || "")}</td>
+                  <td style="padding:8px; border-bottom:1px solid #f1f5f9;">${escapeHtml(d.fromDate)} → ${escapeHtml(d.toDate)}</td>
+                  <td style="padding:8px; border-bottom:1px solid #f1f5f9; text-align:right;"><b>${fmtMoney(totalRow)} đ</b></td>
+                  <td style="padding:8px; border-bottom:1px solid #f1f5f9; text-align:right;">
+                    <button type="button" data-preview-index="${idx}" style="padding:6px 10px;">🖨 In</button>
+                  </td>
+                </tr>
+              `;
+            }).join("")}
+          </tbody>
+        </table>
+      </div>
+    `;
   }
 
   function openInvoiceForRoom(roomNumber, appState) {
@@ -667,29 +876,7 @@
         (titleInput.value || "").trim() ||
         `Hóa đơn xuất phòng ${room.number} kỳ ${latestYM}`;
 
-      const lines = buildInvoiceLines(room, appState, fromDate, toDate);
-      const depositAmount = getRoomDeposit(room);
-
-      const printHtml = buildPrintA5Html({
-        title: titleVal,
-        room,
-        fromDate,
-        toDate,
-        tenantName: tenantNameVal,
-        lines,
-        depositAmount,
-      });
-
-      return {
-        room,
-        tenantName: tenantNameVal,
-        fromDate,
-        toDate,
-        title: titleVal,
-        lines,
-        printHtml,
-        depositAmount,
-      };
+      return buildInvoiceDraft(room, appState, fromDate, toDate, tenantNameVal, titleVal);
     }
 
     function renderPreview() {
@@ -716,22 +903,18 @@
             </tr>
           </thead>
           <tbody>
-            ${draft.lines
-              .map(
-                (l) => `
-                  <tr>
-                    <td style="padding:6px; border:1px solid #e5e7eb;">
-                      <div><b>${escapeHtml(l.name || l.label || "")}</b></div>
-                      ${l.note ? `<div style="font-size:11px; color:#6b7280; white-space:pre-line;">${escapeHtml(l.note)}</div>` : ""}
-                    </td>
-                    <td style="padding:6px; border:1px solid #e5e7eb; text-align:right;">${fmtMoney(l.unitPrice)}</td>
-                    <td style="padding:6px; border:1px solid #e5e7eb; text-align:right;">${fmtMoney(l.qty)}</td>
-                    <td style="padding:6px; border:1px solid #e5e7eb;">${escapeHtml(l.unit || "")}</td>
-                    <td style="padding:6px; border:1px solid #e5e7eb; text-align:right;"><b>${fmtMoney(l.total || l.amount || 0)}</b></td>
-                  </tr>
-                `
-              )
-              .join("")}
+            ${draft.lines.map((l) => `
+              <tr>
+                <td style="padding:6px; border:1px solid #e5e7eb;">
+                  <div><b>${escapeHtml(l.name || l.label || "")}</b></div>
+                  ${l.note ? `<div style="font-size:11px; color:#6b7280; white-space:pre-line;">${escapeHtml(l.note)}</div>` : ""}
+                </td>
+                <td style="padding:6px; border:1px solid #e5e7eb; text-align:right;">${fmtMoney(l.unitPrice)}</td>
+                <td style="padding:6px; border:1px solid #e5e7eb; text-align:right;">${fmtMoney(l.qty)}</td>
+                <td style="padding:6px; border:1px solid #e5e7eb;">${escapeHtml(l.unit || "")}</td>
+                <td style="padding:6px; border:1px solid #e5e7eb; text-align:right;"><b>${fmtMoney(l.total || l.amount || 0)}</b></td>
+              </tr>
+            `).join("")}
           </tbody>
         </table>
 
@@ -774,7 +957,7 @@
     if (printBtn) {
       printBtn.onclick = () => {
         const draft = buildDraft();
-        saveInvoiceToState({
+        const saved = saveInvoiceToState({
           appState,
           room: draft.room,
           tenantName: draft.tenantName,
@@ -787,7 +970,8 @@
           depositAmount: draft.depositAmount,
         });
 
-        openPrintWindow(draft.printHtml);
+        const html = saved?.printHtml || draft.printHtml;
+        openPrintWindow(html);
         msgEl.style.color = "#16a34a";
         msgEl.innerText = `Đã tạo hóa đơn và mở cửa sổ in cho phòng ${room.number}.`;
       };
@@ -796,5 +980,110 @@
     renderPreview();
   }
 
+  function openInvoicesForAllOccupiedRooms(appState) {
+    ensureState(appState);
+
+    const rooms = getOccupiedRooms(appState);
+    if (!rooms.length) {
+      alert("Không có phòng đang thuê để xuất hóa đơn.");
+      return;
+    }
+
+    const drafts = rooms.map((room) => {
+      const tenantName = getFirstTenantName(room);
+      const latestYM = getLatestMeterPeriodForRoom(appState, room.number);
+      const fromDate = firstDayOfMonth(latestYM);
+      const toDate = lastDayOfMonth(latestYM);
+      const title = `Hóa đơn xuất phòng ${room.number} kỳ ${latestYM}`;
+      return buildInvoiceDraft(room, appState, fromDate, toDate, tenantName, title);
+    });
+
+    const { close } = openModal(`
+      <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap;">
+        <h3 style="margin:0;">🧾 Xuất toàn bộ hóa đơn (phòng đang thuê)</h3>
+        <button id="bulk-close-btn" style="padding:6px 10px;">✖ Đóng</button>
+      </div>
+
+      <div style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap;">
+        <button id="bulk-create-btn" style="padding:8px 12px; font-weight:700;">💾 Tạo tất cả hóa đơn</button>
+        <button id="bulk-print-all-btn" style="padding:8px 12px;">🖨 In toàn bộ</button>
+        <button id="bulk-pdf-all-btn" style="padding:8px 12px;">⬇ Lưu toàn bộ PDF</button>
+      </div>
+
+      <div id="bulk-msg" style="margin-top:10px; font-size:12px;"></div>
+      <div id="bulk-preview-box" style="margin-top:12px;"></div>
+    `);
+
+    const closeBtn = document.getElementById("bulk-close-btn");
+    const createBtn = document.getElementById("bulk-create-btn");
+    const printAllBtn = document.getElementById("bulk-print-all-btn");
+    const pdfAllBtn = document.getElementById("bulk-pdf-all-btn");
+    const msgEl = document.getElementById("bulk-msg");
+    const previewBox = document.getElementById("bulk-preview-box");
+
+    if (closeBtn) closeBtn.onclick = close;
+
+    renderBatchPreviewList(previewBox, drafts);
+
+    previewBox.addEventListener("click", (e) => {
+      const btn = e.target.closest("button[data-preview-index]");
+      if (!btn) return;
+      const idx = Number(btn.getAttribute("data-preview-index"));
+      const draft = drafts[idx];
+      if (!draft) return;
+      openPrintWindow(draft.printHtml);
+    });
+
+    function createAllInvoices() {
+      const created = drafts.map((draft) => {
+        return saveInvoiceToState({
+          appState,
+          room: draft.room,
+          tenantName: draft.tenantName,
+          fromDate: draft.fromDate,
+          toDate: draft.toDate,
+          lines: draft.lines,
+          title: draft.title,
+          printHtml: draft.printHtml,
+          metaType: "monthly",
+          depositAmount: draft.depositAmount,
+        });
+      });
+
+      return created.filter(Boolean);
+    }
+
+    if (createBtn) {
+      createBtn.onclick = () => {
+        const created = createAllInvoices();
+        msgEl.style.color = "#16a34a";
+        msgEl.innerText = `Đã tạo ${created.length} hóa đơn.`;
+      };
+    }
+
+    if (printAllBtn) {
+      printAllBtn.onclick = () => {
+        const created = createAllInvoices();
+        const html = buildBatchCombinedHtml(created.length ? created : drafts);
+        openPrintWindow(html);
+        msgEl.style.color = "#16a34a";
+        msgEl.innerText = `Đã mở cửa sổ in toàn bộ ${created.length || drafts.length} hóa đơn.`;
+      };
+    }
+
+    if (pdfAllBtn) {
+      pdfAllBtn.onclick = async () => {
+        const created = createAllInvoices();
+        await saveAllInvoicesPdf(created.length ? created : drafts);
+        msgEl.style.color = "#16a34a";
+        msgEl.innerText = `Đã xử lý lưu PDF cho ${created.length || drafts.length} hóa đơn.`;
+      };
+    }
+  }
+
   window.openInvoiceForRoom = openInvoiceForRoom;
+  window.openInvoicesForAllOccupiedRooms = openInvoicesForAllOccupiedRooms;
+  window.__invoiceBuildBatchCombinedHtml = buildBatchCombinedHtml;
+  window.__invoiceSaveAllInvoicesPdf = saveAllInvoicesPdf;
+  window.__invoiceOpenPrintWindow = openPrintWindow;
 })();
