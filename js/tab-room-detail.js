@@ -949,7 +949,15 @@ function renderRoomDetail(mainContent, appState, roomNumber) {
 
     const used = curr - prev;
     meter.history = meter.history || [];
-    meter.history.push({ period, date, roomNumber, prev, curr, used });
+    meter.history.push({
+  period,
+  date,
+  roomNumber,
+  prev,
+  curr,
+  used,
+  savedAt: new Date().toISOString()
+});
 
     meter.lastReadings = meter.lastReadings || {};
     meter.lastReadings[roomNumber] = curr;
@@ -992,7 +1000,15 @@ function renderRoomDetail(mainContent, appState, roomNumber) {
 
     const used = curr - prev;
     meter.history = meter.history || [];
-    meter.history.push({ period, date, roomNumber, prev, curr, used });
+    meter.history.push({
+  period,
+  date,
+  roomNumber,
+  prev,
+  curr,
+  used,
+  savedAt: new Date().toISOString()
+});
 
     meter.lastReadings = meter.lastReadings || {};
     meter.lastReadings[roomNumber] = curr;
