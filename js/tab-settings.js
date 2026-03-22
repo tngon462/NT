@@ -5,9 +5,11 @@
 let editingRoomIndex = null;
 
 function renderSettings(mainContent, appState) {
-  const rooms = appState.rooms || [];
-  const devices = appState.devices || [];
-  const deviceAssignments = appState.deviceAssignments || [];
+  const rooms = Array.isArray(appState.rooms) ? appState.rooms : [];
+  const devices = Array.isArray(appState.devices) ? appState.devices : [];
+  const deviceAssignments = Array.isArray(appState.deviceAssignments)
+    ? appState.deviceAssignments
+    : [];
 
   // Phòng đang sửa (nếu có)
   let editingRoom = null;
@@ -20,6 +22,7 @@ function renderSettings(mainContent, appState) {
     const usedCount = deviceAssignments.filter((a) => a.deviceId === d.id).length;
     const total = d.totalQty != null ? Number(d.totalQty) : 0;
     const remaining = total > 0 ? Math.max(total - usedCount, 0) : 0;
+
     return {
       ...d,
       usedCount,
@@ -32,8 +35,8 @@ function renderSettings(mainContent, appState) {
   const assignedDeviceIdsForEditing =
     editingRoom && editingRoom.number
       ? deviceAssignments
-          .filter((a) => a.roomNumber === editingRoom.number)
-          (a) => a.deviceId)
+          .filter((a) => String(a.roomNumber) === String(editingRoom.number))
+          .map((a) => a.deviceId)
       : [];
 
   const devicesHtml =
@@ -42,44 +45,84 @@ function renderSettings(mainContent, appState) {
            Chưa có thiết bị nào. Vào tab <b>Thiết bị</b> để khai báo trước.
          </p>`
       : `
-      <div style="display:flex; flex-direction:column; gap:4px; margin-top:4px;">
-        ${deviceWithRemain
-          (d) => {
-            const isChecked = editingRoom
-              ? assignedDeviceIdsForEditing.includes(d.id)
-              : false;
+        <div style="display:flex; flex-direction:column; gap:4px; margin-top:4px;">
+          ${deviceWithRemain
+            .map((d) => {
+              const isChecked = editingRoom
+                ? assignedDeviceIdsForEditing.includes(d.id)
+                : false;
 
-            // Nếu đã hết số lượng thì không cho chọn mới, nhưng nếu phòng này đang dùng thì vẫn giữ được
-            const disabled = d.total > 0 && d.remaining === 0 && !isChecked;
+              // Nếu đã hết số lượng thì không cho chọn mới, nhưng nếu phòng này đang dùng thì vẫn giữ được
+              const disabled = d.total > 0 && d.remaining === 0 && !isChecked;
 
-            const statusText =
-              d.total > 0
-                ? `(Còn ${d.remaining}/${d.total})`
-                : `(Chưa đặt tổng số lượng, cho phép gắn không giới hạn)`;
+              const statusText =
+                d.total > 0
+                  ? `(Còn ${d.remaining}/${d.total})`
+                  : `(Chưa đặt tổng số lượng, cho phép gắn không giới hạn)`;
 
-            return `
-              <label style="font-size:13px; color:#374151;">
-                <input
-                  type="checkbox"
-                  class="room-device-checkbox"
-                  value="${d.id}"
-                  ${isChecked ? "checked" : ""}
-                  ${disabled ? "disabled" : ""}
-                  style="margin-right:4px;"
-                >
-                ${d.name || "(Thiết bị không tên)"} 
-                <span style="color:#6b7280; margin-left:4px;">
-                  ${disabled ? "(Hết số lượng)" : statusText}
-                </span>
-              </label>
-            `;
-          })
-          .join("")}
-      </div>
-    `;
+              return `
+                <label style="font-size:13px; color:#374151;">
+                  <input
+                    type="checkbox"
+                    class="room-device-checkbox"
+                    value="${d.id}"
+                    ${isChecked ? "checked" : ""}
+                    ${disabled ? "disabled" : ""}
+                    style="margin-right:4px;"
+                  >
+                  ${d.name || "(Thiết bị không tên)"}
+                  <span style="color:#6b7280; margin-left:4px;">
+                    ${disabled ? "(Hết số lượng)" : statusText}
+                  </span>
+                </label>
+              `;
+            })
+            .join("")}
+        </div>
+      `;
 
   // form thêm/sửa phòng: mặc định ẩn, nhưng nếu đang sửa thì auto hiện
   const showForm = editingRoom != null;
+
+  const roomsListHtml =
+    rooms.length === 0
+      ? `<p>Chưa có phòng nào.</p>`
+      : `
+        <ul>
+          ${rooms
+            .map((r, idx) => {
+              const priceText = Number(r.price || 0).toLocaleString("vi-VN");
+              return `
+                <li style="margin-bottom:8px;">
+                  Phòng ${r.number} - Giá: ${priceText} đ
+
+                  <button
+                    class="edit-room-btn"
+                    data-room-index="${idx}"
+                    style="margin-left:8px; padding:2px 8px; font-size:11px;"
+                  >
+                    Sửa
+                  </button>
+
+                  ${
+                    !r.tenants || r.tenants.length === 0
+                      ? `
+                        <button
+                          class="delete-room-btn"
+                          data-room-index="${idx}"
+                          style="margin-left:6px; padding:2px 8px; font-size:11px; background:#ef4444; color:white;"
+                        >
+                          Xóa
+                        </button>
+                      `
+                      : ""
+                  }
+                </li>
+              `;
+            })
+            .join("")}
+        </ul>
+      `;
 
   mainContent.innerHTML = `
     <h3>⚙️ Cài đặt</h3>
@@ -97,13 +140,24 @@ function renderSettings(mainContent, appState) {
 
         <div>
           <label>Số phòng (bắt buộc)</label><br>
-          <input id="room-number-input" type="text" placeholder="VD: 101" style="width:200px; padding:6px;"
-                 value="${editingRoom ? editingRoom.number : ""}">
+          <input
+            id="room-number-input"
+            type="text"
+            placeholder="VD: 101"
+            style="width:200px; padding:6px;"
+            value="${editingRoom ? editingRoom.number : ""}"
+          >
         </div>
+
         <div style="margin-top:8px;">
           <label>Giá phòng (bắt buộc)</label><br>
-          <input id="room-price-input" type="number" placeholder="VD: 5000000" style="width:200px; padding:6px;"
-                 value="${editingRoom && editingRoom.price != null ? editingRoom.price : ""}">
+          <input
+            id="room-price-input"
+            type="number"
+            placeholder="VD: 5000000"
+            style="width:200px; padding:6px;"
+            value="${editingRoom && editingRoom.price != null ? editingRoom.price : ""}"
+          >
         </div>
 
         <div style="margin-top:10px;">
@@ -123,62 +177,40 @@ function renderSettings(mainContent, appState) {
           </button>
           ${
             editingRoom
-              ? `<button id="cancel-edit-room-btn" style="padding:8px 10px; margin-left:6px; font-size:13px;">
-                   Hủy sửa
-                 </button>`
+              ? `
+                <button
+                  id="cancel-edit-room-btn"
+                  style="padding:8px 10px; margin-left:6px; font-size:13px;"
+                >
+                  Hủy sửa
+                </button>
+              `
               : ""
           }
         </div>
+
         <div id="room-add-msg" style="margin-top:8px; font-size:13px;"></div>
       </div>
     </div>
 
     <div class="settings-section">
       <h4>Danh sách phòng hiện có</h4>
-      ${
-        rooms.length === 0
-          ? `<p>Chưa có phòng nào.</p>`
-          : `
-        <ul>
-          rooms
-  .map(
-    (r, idx) => `
-      <li>
-        Phòng ${r.number} - Giá: ${r.price.toLocaleString()} đ
-
-        <button class="edit-room-btn" data-room-index="${idx}"
-          style="margin-left:8px; padding:2px 8px; font-size:11px;">
-          Sửa
-        </button>
-
-        ${
-          !r.tenants || r.tenants.length === 0
-            ? `<button class="delete-room-btn" data-room-index="${idx}"
-                style="margin-left:6px; padding:2px 8px; font-size:11px; background:#ef4444; color:white;">
-                Xóa
-              </button>`
-            : ""
-        }
-      </li>
-    `
-  )
-  .join("")
-        </ul>
-      `
-      }
+      ${roomsListHtml}
     </div>
 
     <div class="settings-section">
       <h4>Nhập dữ liệu ban đầu (Excel)</h4>
       <p style="font-size:13px; color:#4b5563; margin-top:6px;">
-        Dùng khi nhập dữ liệu lần đầu. App sẽ đọc file Excel (.xlsx) và tự tạo phòng, thiết bị cố định, cũng như thông tin người thuê.
+        Dùng khi nhập dữ liệu lần đầu. App sẽ đọc file Excel (.xlsx) và tự tạo phòng,
+        thiết bị cố định, cũng như thông tin người thuê.
       </p>
 
       <div style="display:grid; grid-template-columns: 1fr; gap:12px; margin-top:10px;">
         <div style="padding:10px 12px; border:1px solid #e5e7eb; border-radius:10px;">
           <div style="font-weight:700; margin-bottom:6px;">1) Import phòng + thiết bị cố định</div>
           <div style="font-size:12px; color:#6b7280; margin-bottom:6px;">
-            Cột bắt buộc: <b>roomNumber</b>, <b>price</b>. Thiết bị cố định: <b>devices</b> (các tên thiết bị ngăn bằng dấu phẩy).
+            Cột bắt buộc: <b>roomNumber</b>, <b>price</b>.
+            Thiết bị cố định: <b>devices</b> (các tên thiết bị ngăn bằng dấu phẩy).
           </div>
           <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
             <input id="import-rooms-file" type="file" accept=".xlsx" />
@@ -191,7 +223,9 @@ function renderSettings(mainContent, appState) {
         <div style="padding:10px 12px; border:1px solid #e5e7eb; border-radius:10px;">
           <div style="font-weight:700; margin-bottom:6px;">2) Import người thuê (theo phòng)</div>
           <div style="font-size:12px; color:#6b7280; margin-bottom:6px;">
-            Mỗi người 1 dòng. Trùng <b>roomNumber</b> thì tự ghép chung phòng. Cột khuyến nghị: <b>fullName</b>, <b>gender</b>, <b>dob</b>, <b>hometown</b>, <b>relationship</b>, <b>isOwner</b>, <b>note</b>.
+            Mỗi người 1 dòng. Trùng <b>roomNumber</b> thì tự ghép chung phòng.
+            Cột khuyến nghị: <b>fullName</b>, <b>gender</b>, <b>dob</b>, <b>hometown</b>,
+            <b>relationship</b>, <b>isOwner</b>, <b>note</b>.
           </div>
           <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
             <input id="import-tenants-file" type="file" accept=".xlsx" />
@@ -206,40 +240,44 @@ function renderSettings(mainContent, appState) {
     <div class="settings-section">
       <h4>Sao lưu dữ liệu</h4>
       <p style="font-size:13px; color:#4b5563;">
-        Nhấn nút bên dưới để xuất toàn bộ dữ liệu (phòng, người thuê, chi phí, thiết bị, công tơ điện nước...)
-        ra một file Excel (.xlsx). File sẽ được tải về thư mục <b>Downloads</b> của trình duyệt.
+        Nhấn nút bên dưới để xuất toàn bộ dữ liệu (phòng, người thuê, chi phí, thiết bị,
+        công tơ điện nước...) ra một file Excel (.xlsx). File sẽ được tải về thư mục <b>Downloads</b>.
       </p>
       <button id="export-excel-btn" style="padding:8px 14px;">📁 Xuất dữ liệu ra Excel</button>
     </div>
+
     <div class="settings-section">
-  <h4>☁️ Đồng bộ Cloud (Firebase)</h4>
-  <p style="font-size:13px; color:#4b5563;">
-    App vẫn chạy offline bằng dữ liệu trên máy. Khi có mạng, sếp có thể đồng bộ lên cloud hoặc tải dữ liệu từ cloud về máy.
-  </p>
+      <h4>☁️ Đồng bộ Cloud (Firebase)</h4>
+      <p style="font-size:13px; color:#4b5563;">
+        App vẫn chạy offline bằng dữ liệu trên máy. Khi có mạng, sếp có thể đồng bộ lên cloud
+        hoặc tải dữ liệu từ cloud về máy.
+      </p>
 
-  <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
-    <button id="cloud-save-btn" style="padding:8px 14px;">⬆️ Đồng bộ lên Cloud</button>
-    <button id="cloud-load-btn" style="padding:8px 14px;">⬇️ Tải từ Cloud về</button>
+      <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+        <button id="cloud-save-btn" style="padding:8px 14px;">⬆️ Đồng bộ lên Cloud</button>
+        <button id="cloud-load-btn" style="padding:8px 14px;">⬇️ Tải từ Cloud về</button>
 
-    <label style="font-size:13px; color:#374151; display:flex; gap:6px; align-items:center;">
-      <input type="checkbox" id="cloud-autosync-toggle">
-      Tự đồng bộ khi có thay đổi
-    </label>
-  </div>
+        <label style="font-size:13px; color:#374151; display:flex; gap:6px; align-items:center;">
+          <input type="checkbox" id="cloud-autosync-toggle">
+          Tự đồng bộ khi có thay đổi
+        </label>
+      </div>
 
-  <div id="cloud-msg" style="margin-top:8px; font-size:13px;"></div>
-</div>
+      <div id="cloud-msg" style="margin-top:8px; font-size:13px;"></div>
+    </div>
   `;
 
   // ===== Helpers (Excel) =====
   function hasXLSX() {
-    return typeof XLSX !== "undefined" && XLSX?.utils;
+    return typeof XLSX !== "undefined" && XLSX && XLSX.utils;
   }
+
   function downloadXlsx(wb, filename) {
     const wbout = XLSX.write(wb, { bookType: "xlsx", type: "array" });
     const blob = new Blob([wbout], {
       type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     });
+
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
@@ -249,306 +287,26 @@ function renderSettings(mainContent, appState) {
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
   }
+
   function normStr(v) {
     return String(v == null ? "" : v).trim();
   }
+
   function splitCsvDevices(s) {
     return normStr(s)
       .split(",")
-      .map(x => x.trim())
+      .map((x) => x.trim())
       .filter(Boolean);
   }
+
   function truthy(v) {
     const s = normStr(v).toLowerCase();
-    return ["1","true","yes","y","x","chủ phòng","chu phong"].includes(s);
+    return ["1", "true", "yes", "y", "x", "chủ phòng", "chu phong"].includes(s);
   }
+
   function makeDevId() {
     return "dev_" + Date.now() + "_" + Math.random().toString(16).slice(2);
   }
-
-  const roomNumberInput = document.getElementById("room-number-input");
-  const roomPriceInput = document.getElementById("room-price-input");
-  const addRoomBtn = document.getElementById("add-room-btn");
-  const roomAddMsg = document.getElementById("room-add-msg");
-
-  // Toggle ẩn/hiện form
-  const toggleBtn = document.getElementById("toggle-add-room-form-btn");
-  const formContainer = document.getElementById("add-room-form-container");
-  if (toggleBtn && formContainer) {
-    toggleBtn.onclick = () => {
-      const isHidden =
-        formContainer.style.display === "none" ||
-        formContainer.style.display === "";
-      formContainer.style.display = isHidden ? "block" : "none";
-      toggleBtn.innerText = isHidden ? "Ẩn khung phòng" : "Thêm phòng mới";
-    };
-  }
-
-  // Thêm mới / Lưu sửa phòng
-  addRoomBtn.onclick = () => {
-    const number = roomNumberInput.value.trim();
-    const priceStr = roomPriceInput.value.trim();
-
-    if (!number || !priceStr) {
-      roomAddMsg.style.color = "#b91c1c";
-      roomAddMsg.innerText = "Vui lòng nhập đầy đủ số phòng và giá phòng.";
-      return;
-    }
-
-    const price = Number(priceStr);
-    if (isNaN(price) || price <= 0) {
-      roomAddMsg.style.color = "#b91c1c";
-      roomAddMsg.innerText = "Giá phòng không hợp lệ.";
-      return;
-    }
-
-    const selectedCheckboxes = mainContent.querySelectorAll(
-      ".room-device-checkbox:checked"
-    );
-
-    let assignedCount = 0;
-    let skippedCount = 0;
-
-    if (editingRoomIndex === null) {
-      // ===== THÊM PHÒNG MỚI =====
-      // Kiểm tra trùng số phòng
-      if (appState.rooms.some((r) => r.number === number)) {
-        roomAddMsg.style.color = "#b91c1c";
-        roomAddMsg.innerText = "Phòng này đã tồn tại.";
-        return;
-      }
-
-      // Thêm phòng
-      appState.rooms.push({ number, price });
-
-      // Gắn thiết bị cho phòng mới
-      selectedCheckboxes.forEach((cb) => {
-        const deviceId = cb.value;
-        const dev = appState.devices.find((d) => d.id === deviceId);
-        if (!dev) {
-          skippedCount++;
-          return;
-        }
-
-        const total = dev.totalQty != null ? Number(dev.totalQty) : 0;
-        const used = appState.deviceAssignments.filter(
-          (a) => a.deviceId === deviceId
-        ).length;
-
-        if (total > 0 && used >= total) {
-          skippedCount++;
-          return;
-        }
-
-        appState.deviceAssignments.push({
-          deviceId,
-          roomNumber: number,
-        });
-        assignedCount++;
-      });
-
-      roomAddMsg.style.color = "#16a34a";
-      let msg = `Đã thêm phòng ${number}.`;
-      if (assignedCount > 0) msg += ` Gắn ${assignedCount} thiết bị cho phòng này.`;
-      if (skippedCount > 0)
-        msg += ` (${skippedCount} thiết bị không gắn được do đã hết số lượng.)`;
-      roomAddMsg.innerText = msg;
-
-    } else {
-      // ===== SỬA PHÒNG HIỆN CÓ =====
-      const room = appState.rooms[editingRoomIndex];
-      if (!room) {
-        roomAddMsg.style.color = "#b91c1c";
-        roomAddMsg.innerText = "Không tìm thấy phòng để sửa.";
-        return;
-      }
-
-      const oldNumber = room.number;
-
-      // Kiểm tra trùng số phòng (trừ chính nó)
-      if (
-        appState.rooms.some(
-          (r, idx) => idx !== editingRoomIndex && r.number === number
-        )
-      ) {
-        roomAddMsg.style.color = "#b91c1c";
-        roomAddMsg.innerText = "Số phòng mới trùng với phòng khác.";
-        return;
-      }
-
-      // Cập nhật số phòng & giá
-      room.number = number;
-      room.price = price;
-
-      // Cập nhật deviceAssignments:
-      // 1. Bỏ hết gán thiết bị cho phòng cũ
-      let newAssignments = appState.deviceAssignments.filter(
-        (a) => a.roomNumber !== oldNumber
-      );
-
-      // 2. Gắn lại theo checkbox (tôn trọng tổng số lượng)
-      selectedCheckboxes.forEach((cb) => {
-        const deviceId = cb.value;
-        const dev = appState.devices.find((d) => d.id === deviceId);
-        if (!dev) {
-          skippedCount++;
-          return;
-        }
-
-        const total = dev.totalQty != null ? Number(dev.totalQty) : 0;
-        const usedNow = newAssignments.filter(
-          (a) => a.deviceId === deviceId
-        ).length;
-
-        if (total > 0 && usedNow >= total) {
-          skippedCount++;
-          return;
-        }
-
-        newAssignments.push({
-          deviceId,
-          roomNumber: number,
-        });
-        assignedCount++;
-      });
-
-      appState.deviceAssignments = newAssignments;
-
-      // Cập nhật số phòng trong công tơ (nếu đổi số phòng)
-      if (number !== oldNumber && appState.meters) {
-        const meters = appState.meters;
-
-        ["electricity", "water"].forEach((key) => {
-          const meter = meters[key];
-          if (!meter) return;
-
-          // lastReadings
-          if (meter.lastReadings && meter.lastReadings[oldNumber] != null) {
-            meter.lastReadings[number] = meter.lastReadings[oldNumber];
-            delete meter.lastReadings[oldNumber];
-          }
-
-          // history
-          if (Array.isArray(meter.history)) {
-            meter.history.forEach((h) => {
-              if (h.roomNumber === oldNumber) {
-                h.roomNumber = number;
-              }
-            });
-          }
-        });
-      }
-
-      roomAddMsg.style.color = "#16a34a";
-      let msg = `Đã cập nhật thông tin phòng ${number}.`;
-      if (assignedCount > 0) msg += ` Gắn ${assignedCount} thiết bị.`;
-      if (skippedCount > 0)
-        msg += ` (${skippedCount} thiết bị không gắn được do đã hết số lượng.)`;
-      roomAddMsg.innerText = msg;
-
-      // Thoát chế độ sửa
-      editingRoomIndex = null;
-    }
-
-    if (window.saveAppState) window.saveAppState();
-
-    // Reset form
-    roomNumberInput.value = "";
-    roomPriceInput.value = "";
-    const allCheckboxes = mainContent.querySelectorAll(".room-device-checkbox");
-    allCheckboxes.forEach((cb) => (cb.checked = false));
-
-    // render lại để danh sách phòng + trạng thái thiết bị cập nhật
-    renderSettings(mainContent, appState);
-  };
-
-  // Nút Hủy sửa
-  const cancelEditBtn = document.getElementById("cancel-edit-room-btn");
-  if (cancelEditBtn) {
-    cancelEditBtn.onclick = () => {
-      editingRoomIndex = null;
-      renderSettings(mainContent, appState);
-    };
-  }
-
-  // Nút Sửa từng phòng trong danh sách
-  const editRoomBtns = mainContent.querySelectorAll(".edit-room-btn");
-
-  // ===== NÚT XÓA PHÒNG =====
-const deleteRoomBtns = mainContent.querySelectorAll(".delete-room-btn");
-
-deleteRoomBtns.forEach((btn) => {
-  const idx = Number(btn.getAttribute("data-room-index"));
-
-  btn.onclick = () => {
-    const room = appState.rooms[idx];
-    if (!room) return;
-
-    const ok = confirm(`Xóa phòng ${room.number}? Không thể hoàn tác.`);
-    if (!ok) return;
-
-    const roomNumber = room.number;
-
-    // Xóa phòng
-    appState.rooms.splice(idx, 1);
-
-    // Xóa thiết bị gắn với phòng
-    appState.deviceAssignments = appState.deviceAssignments.filter(
-      (a) => String(a.roomNumber) !== String(roomNumber)
-    );
-
-    // Xóa dữ liệu điện nước
-    if (appState.meters) {
-      ["electricity", "water"].forEach((type) => {
-        const meter = appState.meters[type];
-        if (!meter) return;
-
-        if (meter.lastReadings) {
-          delete meter.lastReadings[roomNumber];
-        }
-
-        if (Array.isArray(meter.history)) {
-          meter.history = meter.history.filter(
-            (h) => String(h.roomNumber) !== String(roomNumber)
-          );
-        }
-      });
-    }
-
-    if (window.saveAppState) window.saveAppState();
-
-    alert(`Đã xóa phòng ${room.number}`);
-
-    // render lại
-    renderSettings(mainContent, appState);
-  };
-});
-  
-  editRoomBtns.forEach((btn) => {
-    const idx = Number(btn.getAttribute("data-room-index"));
-    btn.onclick = () => {
-      editingRoomIndex = idx;
-      renderSettings(mainContent, appState);
-    };
-  });
-
-  // Nút xuất Excel
-  const exportBtn = document.getElementById("export-excel-btn");
-  if (exportBtn && window.exportToExcel) {
-    exportBtn.onclick = () => {
-      window.exportToExcel();
-    };
-  }
-
-  // ===== Import Excel: Rooms + Tenants =====
-  const importRoomsFile = document.getElementById("import-rooms-file");
-  const importRoomsBtn = document.getElementById("import-rooms-btn");
-  const importRoomsMsg = document.getElementById("import-rooms-msg");
-  const importTenantsFile = document.getElementById("import-tenants-file");
-  const importTenantsBtn = document.getElementById("import-tenants-btn");
-  const importTenantsMsg = document.getElementById("import-tenants-msg");
-  const dlRoomTpl = document.getElementById("download-room-template");
-  const dlTenantTpl = document.getElementById("download-tenant-template");
 
   function setMsg(el, ok, text) {
     if (!el) return;
@@ -560,12 +318,16 @@ deleteRoomBtns.forEach((btn) => {
     return new Promise((resolve, reject) => {
       try {
         const reader = new FileReader();
+
         reader.onload = (evt) => {
           try {
             const data = new Uint8Array(evt.target.result);
             const wb = XLSX.read(data, { type: "array" });
-            const sheetName = wb.SheetNames?.[0];
-            if (!sheetName) return resolve([]);
+            const sheetName = wb.SheetNames && wb.SheetNames[0];
+            if (!sheetName) {
+              resolve([]);
+              return;
+            }
             const ws = wb.Sheets[sheetName];
             const rows = XLSX.utils.sheet_to_json(ws, { defval: "" });
             resolve(Array.isArray(rows) ? rows : []);
@@ -573,6 +335,7 @@ deleteRoomBtns.forEach((btn) => {
             reject(e);
           }
         };
+
         reader.onerror = (e) => reject(e);
         reader.readAsArrayBuffer(file);
       } catch (e) {
@@ -581,11 +344,298 @@ deleteRoomBtns.forEach((btn) => {
     });
   }
 
+  // ===== Lấy element sau khi render =====
+  const roomNumberInput = document.getElementById("room-number-input");
+  const roomPriceInput = document.getElementById("room-price-input");
+  const addRoomBtn = document.getElementById("add-room-btn");
+  const roomAddMsg = document.getElementById("room-add-msg");
+
+  const toggleBtn = document.getElementById("toggle-add-room-form-btn");
+  const formContainer = document.getElementById("add-room-form-container");
+
+  const cancelEditBtn = document.getElementById("cancel-edit-room-btn");
+  const editRoomBtns = mainContent.querySelectorAll(".edit-room-btn");
+  const deleteRoomBtns = mainContent.querySelectorAll(".delete-room-btn");
+
+  const exportBtn = document.getElementById("export-excel-btn");
+
+  const importRoomsFile = document.getElementById("import-rooms-file");
+  const importRoomsBtn = document.getElementById("import-rooms-btn");
+  const importRoomsMsg = document.getElementById("import-rooms-msg");
+
+  const importTenantsFile = document.getElementById("import-tenants-file");
+  const importTenantsBtn = document.getElementById("import-tenants-btn");
+  const importTenantsMsg = document.getElementById("import-tenants-msg");
+
+  const dlRoomTpl = document.getElementById("download-room-template");
+  const dlTenantTpl = document.getElementById("download-tenant-template");
+
+  const cloudMsg = document.getElementById("cloud-msg");
+  const btnSave = document.getElementById("cloud-save-btn");
+  const btnLoad = document.getElementById("cloud-load-btn");
+  const autoToggle = document.getElementById("cloud-autosync-toggle");
+
+  // ===== Toggle form =====
+  if (toggleBtn && formContainer) {
+    toggleBtn.onclick = () => {
+      const isHidden =
+        formContainer.style.display === "none" ||
+        formContainer.style.display === "";
+
+      formContainer.style.display = isHidden ? "block" : "none";
+      toggleBtn.innerText = isHidden ? "Ẩn khung phòng" : "Thêm phòng mới";
+    };
+  }
+
+  // ===== Thêm / sửa phòng =====
+  if (addRoomBtn) {
+    addRoomBtn.onclick = () => {
+      const number = normStr(roomNumberInput && roomNumberInput.value);
+      const priceStr = normStr(roomPriceInput && roomPriceInput.value);
+
+      if (!number || !priceStr) {
+        roomAddMsg.style.color = "#b91c1c";
+        roomAddMsg.innerText = "Vui lòng nhập đầy đủ số phòng và giá phòng.";
+        return;
+      }
+
+      const price = Number(priceStr);
+      if (Number.isNaN(price) || price <= 0) {
+        roomAddMsg.style.color = "#b91c1c";
+        roomAddMsg.innerText = "Giá phòng không hợp lệ.";
+        return;
+      }
+
+      const selectedCheckboxes = mainContent.querySelectorAll(".room-device-checkbox:checked");
+
+      let assignedCount = 0;
+      let skippedCount = 0;
+
+      if (!Array.isArray(appState.rooms)) appState.rooms = [];
+      if (!Array.isArray(appState.devices)) appState.devices = [];
+      if (!Array.isArray(appState.deviceAssignments)) appState.deviceAssignments = [];
+
+      if (editingRoomIndex === null) {
+        // ===== THÊM PHÒNG MỚI =====
+        if (appState.rooms.some((r) => String(r.number) === String(number))) {
+          roomAddMsg.style.color = "#b91c1c";
+          roomAddMsg.innerText = "Phòng này đã tồn tại.";
+          return;
+        }
+
+        appState.rooms.push({
+          number,
+          price,
+          tenants: [],
+        });
+
+        selectedCheckboxes.forEach((cb) => {
+          const deviceId = cb.value;
+          const dev = appState.devices.find((d) => d.id === deviceId);
+          if (!dev) {
+            skippedCount++;
+            return;
+          }
+
+          const total = dev.totalQty != null ? Number(dev.totalQty) : 0;
+          const used = appState.deviceAssignments.filter((a) => a.deviceId === deviceId).length;
+
+          if (total > 0 && used >= total) {
+            skippedCount++;
+            return;
+          }
+
+          appState.deviceAssignments.push({
+            deviceId,
+            roomNumber: number,
+          });
+          assignedCount++;
+        });
+
+        roomAddMsg.style.color = "#16a34a";
+        let msg = `Đã thêm phòng ${number}.`;
+        if (assignedCount > 0) msg += ` Gắn ${assignedCount} thiết bị cho phòng này.`;
+        if (skippedCount > 0) {
+          msg += ` (${skippedCount} thiết bị không gắn được do đã hết số lượng.)`;
+        }
+        roomAddMsg.innerText = msg;
+      } else {
+        // ===== SỬA PHÒNG =====
+        const room = appState.rooms[editingRoomIndex];
+        if (!room) {
+          roomAddMsg.style.color = "#b91c1c";
+          roomAddMsg.innerText = "Không tìm thấy phòng để sửa.";
+          return;
+        }
+
+        const oldNumber = room.number;
+
+        if (
+          appState.rooms.some(
+            (r, idx) => idx !== editingRoomIndex && String(r.number) === String(number)
+          )
+        ) {
+          roomAddMsg.style.color = "#b91c1c";
+          roomAddMsg.innerText = "Số phòng mới trùng với phòng khác.";
+          return;
+        }
+
+        room.number = number;
+        room.price = price;
+
+        // cập nhật lại assignment của phòng
+        let newAssignments = appState.deviceAssignments.filter(
+          (a) => String(a.roomNumber) !== String(oldNumber)
+        );
+
+        selectedCheckboxes.forEach((cb) => {
+          const deviceId = cb.value;
+          const dev = appState.devices.find((d) => d.id === deviceId);
+
+          if (!dev) {
+            skippedCount++;
+            return;
+          }
+
+          const total = dev.totalQty != null ? Number(dev.totalQty) : 0;
+          const usedNow = newAssignments.filter((a) => a.deviceId === deviceId).length;
+
+          if (total > 0 && usedNow >= total) {
+            skippedCount++;
+            return;
+          }
+
+          newAssignments.push({
+            deviceId,
+            roomNumber: number,
+          });
+          assignedCount++;
+        });
+
+        appState.deviceAssignments = newAssignments;
+
+        // cập nhật số phòng trong meters nếu đổi số phòng
+        if (number !== oldNumber && appState.meters) {
+          ["electricity", "water"].forEach((key) => {
+            const meter = appState.meters[key];
+            if (!meter) return;
+
+            if (meter.lastReadings && meter.lastReadings[oldNumber] != null) {
+              meter.lastReadings[number] = meter.lastReadings[oldNumber];
+              delete meter.lastReadings[oldNumber];
+            }
+
+            if (Array.isArray(meter.history)) {
+              meter.history.forEach((h) => {
+                if (String(h.roomNumber) === String(oldNumber)) {
+                  h.roomNumber = number;
+                }
+              });
+            }
+          });
+        }
+
+        roomAddMsg.style.color = "#16a34a";
+        let msg = `Đã cập nhật thông tin phòng ${number}.`;
+        if (assignedCount > 0) msg += ` Gắn ${assignedCount} thiết bị.`;
+        if (skippedCount > 0) {
+          msg += ` (${skippedCount} thiết bị không gắn được do đã hết số lượng.)`;
+        }
+        roomAddMsg.innerText = msg;
+
+        editingRoomIndex = null;
+      }
+
+      if (window.saveAppState) window.saveAppState();
+
+      if (roomNumberInput) roomNumberInput.value = "";
+      if (roomPriceInput) roomPriceInput.value = "";
+
+      const allCheckboxes = mainContent.querySelectorAll(".room-device-checkbox");
+      allCheckboxes.forEach((cb) => {
+        cb.checked = false;
+      });
+
+      renderSettings(mainContent, appState);
+    };
+  }
+
+  // ===== Hủy sửa =====
+  if (cancelEditBtn) {
+    cancelEditBtn.onclick = () => {
+      editingRoomIndex = null;
+      renderSettings(mainContent, appState);
+    };
+  }
+
+  // ===== Sửa phòng =====
+  editRoomBtns.forEach((btn) => {
+    const idx = Number(btn.getAttribute("data-room-index"));
+    btn.onclick = () => {
+      editingRoomIndex = idx;
+      renderSettings(mainContent, appState);
+    };
+  });
+
+  // ===== Xóa phòng =====
+  deleteRoomBtns.forEach((btn) => {
+    const idx = Number(btn.getAttribute("data-room-index"));
+
+    btn.onclick = () => {
+      const room = appState.rooms[idx];
+      if (!room) return;
+
+      const ok = confirm(`Xóa phòng ${room.number}? Không thể hoàn tác.`);
+      if (!ok) return;
+
+      const roomNumber = room.number;
+
+      appState.rooms.splice(idx, 1);
+
+      appState.deviceAssignments = appState.deviceAssignments.filter(
+        (a) => String(a.roomNumber) !== String(roomNumber)
+      );
+
+      if (appState.meters) {
+        ["electricity", "water"].forEach((type) => {
+          const meter = appState.meters[type];
+          if (!meter) return;
+
+          if (meter.lastReadings) {
+            delete meter.lastReadings[roomNumber];
+          }
+
+          if (Array.isArray(meter.history)) {
+            meter.history = meter.history.filter(
+              (h) => String(h.roomNumber) !== String(roomNumber)
+            );
+          }
+        });
+      }
+
+      if (window.saveAppState) window.saveAppState();
+
+      alert(`Đã xóa phòng ${room.number}`);
+      renderSettings(mainContent, appState);
+    };
+  });
+
+  // ===== Xuất Excel =====
+  if (exportBtn && window.exportToExcel) {
+    exportBtn.onclick = () => {
+      window.exportToExcel();
+    };
+  }
+
+  // ===== Template import =====
   function downloadRoomTemplate(e) {
-    e?.preventDefault?.();
-    if (!hasXLSX()) return alert("Chưa tải được thư viện XLSX (xlsx.full.min.js).");
+    e && e.preventDefault && e.preventDefault();
+    if (!hasXLSX()) {
+      alert("Chưa tải được thư viện XLSX (xlsx.full.min.js).");
+      return;
+    }
+
     const wb = XLSX.utils.book_new();
-    // ✅ File mẫu tiếng Việt (đồng bộ với import)
     const rows = [
       {
         "Số phòng": "201",
@@ -598,16 +648,20 @@ deleteRoomBtns.forEach((btn) => {
         "Danh sách thiết bị trong phòng": "Máy lạnh, Giường",
       },
     ];
+
     const ws = XLSX.utils.json_to_sheet(rows);
     XLSX.utils.book_append_sheet(wb, ws, "Phòng");
     downloadXlsx(wb, "mau_import_phong_thietbi.xlsx");
   }
 
   function downloadTenantTemplate(e) {
-    e?.preventDefault?.();
-    if (!hasXLSX()) return alert("Chưa tải được thư viện XLSX (xlsx.full.min.js).");
+    e && e.preventDefault && e.preventDefault();
+    if (!hasXLSX()) {
+      alert("Chưa tải được thư viện XLSX (xlsx.full.min.js).");
+      return;
+    }
+
     const wb = XLSX.utils.book_new();
-    // ✅ File mẫu tiếng Việt (đồng bộ với import)
     const rows = [
       {
         "Số phòng": "201",
@@ -634,6 +688,7 @@ deleteRoomBtns.forEach((btn) => {
         "Ghi chú": "",
       },
     ];
+
     const ws = XLSX.utils.json_to_sheet(rows);
     XLSX.utils.book_append_sheet(wb, ws, "Người thuê");
     downloadXlsx(wb, "mau_import_nguoi_thue.xlsx");
@@ -642,25 +697,34 @@ deleteRoomBtns.forEach((btn) => {
   if (dlRoomTpl) dlRoomTpl.onclick = downloadRoomTemplate;
   if (dlTenantTpl) dlTenantTpl.onclick = downloadTenantTemplate;
 
+  // ===== Import phòng =====
   async function handleImportRooms() {
-    if (!hasXLSX()) return alert("Chưa tải được thư viện XLSX (xlsx.full.min.js).");
-    const file = importRoomsFile?.files?.[0];
-    if (!file) return setMsg(importRoomsMsg, false, "Chọn file Excel trước đã.");
+    if (!hasXLSX()) {
+      alert("Chưa tải được thư viện XLSX (xlsx.full.min.js).");
+      return;
+    }
+
+    const file = importRoomsFile && importRoomsFile.files ? importRoomsFile.files[0] : null;
+    if (!file) {
+      setMsg(importRoomsMsg, false, "Chọn file Excel trước đã.");
+      return;
+    }
+
     setMsg(importRoomsMsg, true, "Đang đọc file...");
 
     try {
       const rows = await readFirstSheetToRows(file);
       if (!Array.isArray(rows) || rows.length === 0) {
-        return setMsg(importRoomsMsg, false, "File rỗng hoặc không đọc được sheet.");
+        setMsg(importRoomsMsg, false, "File rỗng hoặc không đọc được sheet.");
+        return;
       }
 
       if (!Array.isArray(appState.rooms)) appState.rooms = [];
       if (!Array.isArray(appState.devices)) appState.devices = [];
       if (!Array.isArray(appState.deviceAssignments)) appState.deviceAssignments = [];
 
-      // map name -> device
       const devByName = new Map(
-        (appState.devices || []).map((d) => [normStr(d.name).toLowerCase(), d])
+        appState.devices.map((d) => [normStr(d.name).toLowerCase(), d])
       );
 
       let addedRooms = 0;
@@ -670,21 +734,37 @@ deleteRoomBtns.forEach((btn) => {
       let skipped = 0;
 
       rows.forEach((raw) => {
-        // Hỗ trợ cả header tiếng Anh lẫn tiếng Việt
         const roomNumber = normStr(
-          raw.roomNumber || raw.number || raw.room || raw.phong || raw["Số phòng"] || raw["So phong"]
+          raw.roomNumber ||
+            raw.number ||
+            raw.room ||
+            raw.phong ||
+            raw["Số phòng"] ||
+            raw["So phong"]
         );
+
         const price = Number(
-          raw.price || raw.roomPrice || raw.gia || raw.giaPhong || raw["Giá phòng (tháng)"] || raw["Gia phong (thang)"] || 0
+          raw.price ||
+            raw.roomPrice ||
+            raw.gia ||
+            raw.giaPhong ||
+            raw["Giá phòng (tháng)"] ||
+            raw["Gia phong (thang)"] ||
+            0
         );
+
         if (!roomNumber || !price || Number.isNaN(price) || price <= 0) {
           skipped++;
           return;
         }
 
-        let room = (appState.rooms || []).find((r) => String(r.number) === String(roomNumber));
+        let room = appState.rooms.find((r) => String(r.number) === String(roomNumber));
         if (!room) {
-          room = { number: String(roomNumber), price: price, tenants: [] };
+          room = {
+            number: String(roomNumber),
+            price,
+            tenants: [],
+          };
           appState.rooms.push(room);
           addedRooms++;
         } else {
@@ -694,42 +774,59 @@ deleteRoomBtns.forEach((btn) => {
         }
 
         const devicesList = splitCsvDevices(
-          raw.devices || raw.deviceNames || raw.thietbi || raw["Danh sách thiết bị trong phòng"] || raw["Danh sach thiet bi trong phong"] || ""
+          raw.devices ||
+            raw.deviceNames ||
+            raw.thietbi ||
+            raw["Danh sách thiết bị trong phòng"] ||
+            raw["Danh sach thiet bi trong phong"] ||
+            ""
         );
+
         devicesList.forEach((deviceName) => {
           const key = normStr(deviceName).toLowerCase();
           if (!key) return;
+
           let dev = devByName.get(key);
           if (!dev) {
-            dev = { id: makeDevId(), name: normStr(deviceName), totalQty: 0, price: 0, note: "" };
+            dev = {
+              id: makeDevId(),
+              name: normStr(deviceName),
+              totalQty: 0,
+              price: 0,
+              note: "",
+            };
             appState.devices.push(dev);
             devByName.set(key, dev);
             createdDevices++;
           }
 
-          // gắn 1 bản ghi assignment cho mỗi thiết bị (cho phép trùng để = nhiều cái giống nhau)
-          appState.deviceAssignments.push({ deviceId: dev.id, roomNumber: String(roomNumber) });
+          appState.deviceAssignments.push({
+            deviceId: dev.id,
+            roomNumber: String(roomNumber),
+          });
           createdAssignments++;
         });
       });
 
-      // cập nhật totalQty tối thiểu = số assignment của từng device (để còn theo dõi tồn)
       const cntByDev = {};
-      (appState.deviceAssignments || []).forEach((a) => {
+      appState.deviceAssignments.forEach((a) => {
         cntByDev[a.deviceId] = (cntByDev[a.deviceId] || 0) + 1;
       });
-      (appState.devices || []).forEach((d) => {
+
+      appState.devices.forEach((d) => {
         const need = cntByDev[d.id] || 0;
         const curr = Number(d.totalQty || 0);
         if (need > curr) d.totalQty = need;
       });
 
       if (window.saveAppState) window.saveAppState();
+
       setMsg(
         importRoomsMsg,
         true,
         `Xong: thêm ${addedRooms} phòng, cập nhật ${updatedRooms} phòng, tạo ${createdDevices} thiết bị, gắn ${createdAssignments} thiết bị. (Bỏ qua ${skipped} dòng lỗi)`
       );
+
       renderSettings(mainContent, appState);
     } catch (e) {
       console.error(e);
@@ -737,16 +834,28 @@ deleteRoomBtns.forEach((btn) => {
     }
   }
 
+  // ===== Import người thuê =====
   async function handleImportTenants() {
-    if (!hasXLSX()) return alert("Chưa tải được thư viện XLSX (xlsx.full.min.js).");
-    const file = importTenantsFile?.files?.[0];
-    if (!file) return setMsg(importTenantsMsg, false, "Chọn file Excel trước đã.");
+    if (!hasXLSX()) {
+      alert("Chưa tải được thư viện XLSX (xlsx.full.min.js).");
+      return;
+    }
+
+    const file =
+      importTenantsFile && importTenantsFile.files ? importTenantsFile.files[0] : null;
+
+    if (!file) {
+      setMsg(importTenantsMsg, false, "Chọn file Excel trước đã.");
+      return;
+    }
+
     setMsg(importTenantsMsg, true, "Đang đọc file...");
 
     try {
       const rows = await readFirstSheetToRows(file);
       if (!Array.isArray(rows) || rows.length === 0) {
-        return setMsg(importTenantsMsg, false, "File rỗng hoặc không đọc được sheet.");
+        setMsg(importTenantsMsg, false, "File rỗng hoặc không đọc được sheet.");
+        return;
       }
 
       if (!Array.isArray(appState.rooms)) appState.rooms = [];
@@ -755,26 +864,37 @@ deleteRoomBtns.forEach((btn) => {
       let skipped = 0;
       let ownerFix = 0;
 
-      // track owner per room
       const ownerByRoom = {};
 
       rows.forEach((raw) => {
-        // Hỗ trợ cả header tiếng Anh lẫn tiếng Việt
-        const roomNumber = normStr(raw.roomNumber || raw.room || raw.phong || raw["Số phòng"] || raw["So phong"]);
-        const fullName = normStr(
-          raw.fullName || raw.name || raw.hoten || raw.hoTen || raw["Họ và tên"] || raw["Ho va ten"]
+        const roomNumber = normStr(
+          raw.roomNumber || raw.room || raw.phong || raw["Số phòng"] || raw["So phong"]
         );
+
+        const fullName = normStr(
+          raw.fullName ||
+            raw.name ||
+            raw.hoten ||
+            raw.hoTen ||
+            raw["Họ và tên"] ||
+            raw["Ho va ten"]
+        );
+
         if (!roomNumber || !fullName) {
           skipped++;
           return;
         }
 
-        let room = (appState.rooms || []).find((r) => String(r.number) === String(roomNumber));
+        let room = appState.rooms.find((r) => String(r.number) === String(roomNumber));
         if (!room) {
-          // nếu chưa có phòng thì auto tạo phòng với giá = 0 (sếp có thể sửa sau)
-          room = { number: String(roomNumber), price: 0, tenants: [] };
+          room = {
+            number: String(roomNumber),
+            price: 0,
+            tenants: [],
+          };
           appState.rooms.push(room);
         }
+
         if (!Array.isArray(room.tenants)) room.tenants = [];
 
         const isOwner = truthy(
@@ -784,11 +904,11 @@ deleteRoomBtns.forEach((btn) => {
             raw.chuphong ||
             raw["Là chủ phòng"] ||
             raw["La chu phong"] ||
-            // cho phép người dùng ghi "Chủ phòng" ở cột quan hệ
             raw.relationship ||
             raw["Mối quan hệ với chủ phòng"] ||
             raw["Moi quan he voi chu phong"]
         );
+
         let finalIsOwner = isOwner;
         if (finalIsOwner) {
           if (ownerByRoom[roomNumber]) {
@@ -796,33 +916,43 @@ deleteRoomBtns.forEach((btn) => {
             ownerFix++;
           } else {
             ownerByRoom[roomNumber] = true;
-            // clear any previous owner inside existing data
-            room.tenants.forEach((t) => (t.isOwner = false));
+            room.tenants.forEach((t) => {
+              t.isOwner = false;
+            });
           }
         }
 
-        const t = {
+        room.tenants.push({
           fullName,
           gender: normStr(raw.gender || raw["Giới tính"] || raw["Gioi tinh"]),
           dob: normStr(raw.dob || raw.birthday || raw.ngaysinh || raw["Ngày sinh"] || raw["Ngay sinh"]),
           hometown: normStr(raw.hometown || raw.queQuan || raw.quequan || raw["Quê quán"] || raw["Que quan"]),
           relationship: normStr(
-            raw.relationship || raw.moiQuanHe || raw.moiquanhe || raw["Mối quan hệ với chủ phòng"] || raw["Moi quan he voi chu phong"]
+            raw.relationship ||
+              raw.moiQuanHe ||
+              raw.moiquanhe ||
+              raw["Mối quan hệ với chủ phòng"] ||
+              raw["Moi quan he voi chu phong"]
           ),
           isOwner: finalIsOwner,
           phone: normStr(raw.phone || raw.sdt || raw["Số điện thoại"] || raw["So dien thoai"]),
           address: normStr(raw.address || raw.diachi || raw["Địa chỉ hiện tại"] || raw["Dia chi hien tai"]),
           note: normStr(raw.note || raw.ghiChu || raw.ghichu || raw["Ghi chú"] || raw["Ghi chu"]),
-        };
-        room.tenants.push(t);
+        });
+
         added++;
       });
 
       if (window.saveAppState) window.saveAppState();
+
       setMsg(
         importTenantsMsg,
         true,
-        `Xong: thêm ${added} người thuê. (Bỏ qua ${skipped} dòng lỗi)${ownerFix ? ` • ${ownerFix} dòng bị bỏ chọn chủ phòng do mỗi phòng chỉ 1 chủ phòng.` : ""}`
+        `Xong: thêm ${added} người thuê. (Bỏ qua ${skipped} dòng lỗi)${
+          ownerFix
+            ? ` • ${ownerFix} dòng bị bỏ chọn chủ phòng do mỗi phòng chỉ 1 chủ phòng.`
+            : ""
+        }`
       );
     } catch (e) {
       console.error(e);
@@ -833,12 +963,7 @@ deleteRoomBtns.forEach((btn) => {
   if (importRoomsBtn) importRoomsBtn.onclick = handleImportRooms;
   if (importTenantsBtn) importTenantsBtn.onclick = handleImportTenants;
 
-  // ===== CLOUD SYNC (Firebase) =====
-  const cloudMsg = document.getElementById("cloud-msg");
-  const btnSave = document.getElementById("cloud-save-btn");
-  const btnLoad = document.getElementById("cloud-load-btn");
-  const autoToggle = document.getElementById("cloud-autosync-toggle");
-
+  // ===== CLOUD =====
   function setCloudMsg(txt, ok = true) {
     if (!cloudMsg) return;
     cloudMsg.style.color = ok ? "#059669" : "#dc2626";
@@ -847,103 +972,123 @@ deleteRoomBtns.forEach((btn) => {
 
   function formatPendingList(pending) {
     if (!Array.isArray(pending) || pending.length === 0) return "";
-    const last = pending.slice(-10); // show last 10
+
+    const last = pending.slice(-10);
     let s = `Có ${pending.length} thay đổi đang chờ đồng bộ:\n`;
+
     last.forEach((p, idx) => {
-      const time = (p.at || "").replace("T", " ").replace("Z", "");
-      const sum = Array.isArray(p.summary) && p.summary.length ? p.summary.join(", ") : "(không rõ mục thay đổi)";
+      const time = String(p.at || "").replace("T", " ").replace("Z", "");
+      const sum =
+        Array.isArray(p.summary) && p.summary.length
+          ? p.summary.join(", ")
+          : "(không rõ mục thay đổi)";
       s += `\n${idx + 1}) ${time}\n- ${sum}\n`;
     });
+
     if (pending.length > 10) s += `\n... (còn ${pending.length - 10} mục nữa)`;
     return s;
   }
 
-  // ✅ mặc định bật autosync + sync trạng thái UI
   if (autoToggle) {
     const v = window.getAutoSync ? window.getAutoSync() : true;
     autoToggle.checked = !!v;
-    window.setAutoSync?.(autoToggle.checked);
+    if (window.setAutoSync) window.setAutoSync(autoToggle.checked);
 
     autoToggle.onchange = () => {
-      window.setAutoSync?.(autoToggle.checked);
+      if (window.setAutoSync) window.setAutoSync(autoToggle.checked);
       setCloudMsg(autoToggle.checked ? "Đã bật tự đồng bộ (mặc định)." : "Đã tắt tự đồng bộ.");
     };
   }
 
-  // nếu đang có pending -> báo nhẹ trên UI
   try {
-    const pending = window.getPendingChanges?.() || [];
+    const pending = window.getPendingChanges ? window.getPendingChanges() : [];
     if (pending.length) {
-      setCloudMsg(`⚠️ Có ${pending.length} thay đổi offline chưa lên cloud. Nhấn "Đồng bộ" để xem và xác nhận.`, false);
+      setCloudMsg(
+        `⚠️ Có ${pending.length} thay đổi offline chưa lên cloud. Nhấn "Đồng bộ" để xem và xác nhận.`,
+        false
+      );
     }
-  } catch {}
+  } catch (e) {}
 
-    // ===== Auto prompt when back online =====
-  const ONLINE_PROMPT_KEY = "nhatro_cloud_online_prompt_at_v1"; // ISO time
-  const ONLINE_PROMPT_COOLDOWN_MS = 30 * 1000; // 30s chống spam
+  const ONLINE_PROMPT_KEY = "nhatro_cloud_online_prompt_at_v1";
+  const ONLINE_PROMPT_COOLDOWN_MS = 30 * 1000;
 
   function canPromptOnline() {
     try {
-      const last = lsGet(ONLINE_PROMPT_KEY, "");
+      const last = typeof lsGet === "function" ? lsGet(ONLINE_PROMPT_KEY, "") : "";
       if (!last) return true;
       const t = Date.parse(last);
       if (!isFinite(t)) return true;
-      return (Date.now() - t) > ONLINE_PROMPT_COOLDOWN_MS;
-    } catch {
+      return Date.now() - t > ONLINE_PROMPT_COOLDOWN_MS;
+    } catch (e) {
       return true;
     }
   }
 
   function markPrompted() {
-    try { lsSet(ONLINE_PROMPT_KEY, new Date().toISOString()); } catch {}
+    try {
+      if (typeof lsSet === "function") {
+        lsSet(ONLINE_PROMPT_KEY, new Date().toISOString());
+      }
+    } catch (e) {}
   }
 
   async function promptAndSyncIfNeeded() {
     if (!navigator.onLine) return;
-    if (!window.getAutoSync?.()) return; // chỉ hỏi khi autosync đang bật
-    const pending = window.getPendingChanges?.() || [];
+    if (!(window.getAutoSync && window.getAutoSync())) return;
+
+    const pending = window.getPendingChanges ? window.getPendingChanges() : [];
     if (!pending.length) return;
 
     if (!canPromptOnline()) return;
     markPrompted();
 
-    // gộp summary từ pending (hiển thị tối đa 10 mục gần nhất)
     const last = pending.slice(-10);
     let msg = `Có ${pending.length} thay đổi offline chưa đồng bộ.\n\n`;
+
     last.forEach((p, i) => {
-      const time = (p.at || "").replace("T", " ").replace("Z", "");
-      const sum = Array.isArray(p.summary) && p.summary.length ? p.summary.join(", ") : "(không rõ mục thay đổi)";
+      const time = String(p.at || "").replace("T", " ").replace("Z", "");
+      const sum =
+        Array.isArray(p.summary) && p.summary.length
+          ? p.summary.join(", ")
+          : "(không rõ mục thay đổi)";
       msg += `${i + 1}) ${time}\n- ${sum}\n\n`;
     });
-    if (pending.length > 10) msg += `... (còn ${pending.length - 10} mục nữa)\n\n`;
+
+    if (pending.length > 10) {
+      msg += `... (còn ${pending.length - 10} mục nữa)\n\n`;
+    }
+
     msg += "Có cập nhật tất cả lên cloud ngay bây giờ không?";
 
     const ok = confirm(msg);
     if (!ok) return;
 
     try {
-      await window.cloudSave(); // thành công sẽ tự clear pending (đã làm ở core)
-      // thông báo nhẹ (không bắt buộc)
-      try { window.dispatchEvent(new CustomEvent("nhatro:cloudsynced")); } catch {}
+      if (window.cloudSave) await window.cloudSave();
+      try {
+        window.dispatchEvent(new CustomEvent("nhatro:cloudsynced"));
+      } catch (e) {}
     } catch (e) {
-      // nếu fail thì pending đã được ghi thêm trong cloudSave()
-      // không alert spam, user có thể bấm đồng bộ thủ công ở tab Cài đặt
+      // bỏ qua để tránh spam
     }
   }
 
-  // Khi vừa có mạng lại -> hỏi xác nhận
   window.addEventListener("online", () => {
-    // đợi 0.5s cho wifi ổn định
-    setTimeout(() => { promptAndSyncIfNeeded(); }, 500);
+    setTimeout(() => {
+      promptAndSyncIfNeeded();
+    }, 500);
   });
 
-  // Nếu đang online ngay lúc load app và có pending -> cũng hỏi 1 lần
-  setTimeout(() => { promptAndSyncIfNeeded(); }, 1200);
-  
+  setTimeout(() => {
+    promptAndSyncIfNeeded();
+  }, 1200);
+
   if (btnSave) {
     btnSave.onclick = async () => {
       try {
-        const pending = window.getPendingChanges?.() || [];
+        const pending = window.getPendingChanges ? window.getPendingChanges() : [];
+
         if (pending.length) {
           const text = formatPendingList(pending);
           const ok = confirm(text + "\n\nCập nhật tất cả các thay đổi này lên cloud không?");
@@ -954,34 +1099,36 @@ deleteRoomBtns.forEach((btn) => {
         }
 
         setCloudMsg("Đang đồng bộ lên cloud...");
-        await window.cloudSave();
+        if (window.cloudSave) await window.cloudSave();
         setCloudMsg("✅ Đã đồng bộ lên cloud.");
       } catch (e) {
-        setCloudMsg("❌ Đồng bộ thất bại: " + (e?.message || e), false);
+        setCloudMsg("❌ Đồng bộ thất bại: " + (e && e.message ? e.message : e), false);
       }
     };
   }
 
   if (btnLoad) {
     btnLoad.onclick = async () => {
-      if (!confirm("Tải từ cloud sẽ ghi đè dữ liệu đang có trên máy. Tiếp tục?")) return;
+      const ok = confirm("Tải từ cloud sẽ ghi đè dữ liệu đang có trên máy. Tiếp tục?");
+      if (!ok) return;
+
       try {
         setCloudMsg("Đang tải dữ liệu từ cloud...");
-        const payload = await window.cloudLoad();
+        const payload = window.cloudLoad ? await window.cloudLoad() : null;
         if (!payload) {
           setCloudMsg("Cloud chưa có dữ liệu để tải.", false);
           return;
         }
-        window.loadAppState?.();
-        window.setView?.("overview");
+
+        if (window.loadAppState) window.loadAppState();
+        if (window.setView) window.setView("overview");
         setCloudMsg("✅ Đã tải dữ liệu từ cloud về máy.");
       } catch (e) {
-        setCloudMsg("❌ Tải thất bại: " + (e?.message || e), false);
+        setCloudMsg("❌ Tải thất bại: " + (e && e.message ? e.message : e), false);
       }
     };
   }
+}
 
-} // ===== KẾT THÚC renderSettings =====
-
-// ✅ EXPORT BẮT BUỘC – nếu thiếu dòng này tab Settings sẽ chết
+// export bắt buộc
 window.renderSettings = renderSettings;
