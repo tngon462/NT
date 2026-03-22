@@ -143,12 +143,23 @@ function renderSettings(mainContent, appState) {
           ${rooms
             .map(
               (r, idx) =>
-                `<li>
-                   Phòng ${r.number} - Giá: ${r.price.toLocaleString()} đ
-                   <button class="edit-room-btn" data-room-index="${idx}" style="margin-left:8px; padding:2px 8px; font-size:11px;">
-                     Sửa
-                   </button>
-                 </li>`
+                <li>
+  Phòng ${r.number} - Giá: ${r.price.toLocaleString()} đ
+
+  <button class="edit-room-btn" data-room-index="${idx}"
+    style="margin-left:8px; padding:2px 8px; font-size:11px;">
+    Sửa
+  </button>
+
+  ${
+    !r.tenants || r.tenants.length === 0
+      ? `<button class="delete-room-btn" data-room-index="${idx}"
+          style="margin-left:6px; padding:2px 8px; font-size:11px; background:#ef4444; color:white;">
+          Xóa
+        </button>`
+      : ""
+  }
+</li>
             )
             .join("")}
         </ul>
@@ -461,6 +472,57 @@ function renderSettings(mainContent, appState) {
 
   // Nút Sửa từng phòng trong danh sách
   const editRoomBtns = mainContent.querySelectorAll(".edit-room-btn");
+
+  // ===== NÚT XÓA PHÒNG =====
+const deleteRoomBtns = mainContent.querySelectorAll(".delete-room-btn");
+
+deleteRoomBtns.forEach((btn) => {
+  const idx = Number(btn.getAttribute("data-room-index"));
+
+  btn.onclick = () => {
+    const room = appState.rooms[idx];
+    if (!room) return;
+
+    const ok = confirm(`Xóa phòng ${room.number}? Không thể hoàn tác.`);
+    if (!ok) return;
+
+    const roomNumber = room.number;
+
+    // Xóa phòng
+    appState.rooms.splice(idx, 1);
+
+    // Xóa thiết bị gắn với phòng
+    appState.deviceAssignments = appState.deviceAssignments.filter(
+      (a) => String(a.roomNumber) !== String(roomNumber)
+    );
+
+    // Xóa dữ liệu điện nước
+    if (appState.meters) {
+      ["electricity", "water"].forEach((type) => {
+        const meter = appState.meters[type];
+        if (!meter) return;
+
+        if (meter.lastReadings) {
+          delete meter.lastReadings[roomNumber];
+        }
+
+        if (Array.isArray(meter.history)) {
+          meter.history = meter.history.filter(
+            (h) => String(h.roomNumber) !== String(roomNumber)
+          );
+        }
+      });
+    }
+
+    if (window.saveAppState) window.saveAppState();
+
+    alert(`Đã xóa phòng ${room.number}`);
+
+    // render lại
+    renderSettings(mainContent, appState);
+  };
+});
+  
   editRoomBtns.forEach((btn) => {
     const idx = Number(btn.getAttribute("data-room-index"));
     btn.onclick = () => {
