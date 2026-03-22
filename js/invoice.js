@@ -1,10 +1,4 @@
 // js/invoice.js
-// Tạo hóa đơn tháng cho 1 phòng
-// FIX CHUẨN:
-// 1) Ưu tiên lấy điện/nước theo `period`
-// 2) Nếu không có period thì mới fallback theo `date`
-// 3) Lưu cả oldReading/newReading/used vào invoice để tab hóa đơn đọc lại đúng
-
 (function () {
   const BRAND = {
     title: "PHIẾU THU TIỀN PHÒNG TRỌ THIỆP MẾN",
@@ -221,9 +215,20 @@
     return Number(sorted[sorted.length - 1].curr || 0);
   }
 
+  function getLatestMeterPeriodForRoom(appState, roomNumber) {
+    const all = [
+      ...getRoomMeterRecords(appState, "electricity", roomNumber),
+      ...getRoomMeterRecords(appState, "water", roomNumber),
+    ];
+
+    if (!all.length) return ymOf(todayISO());
+
+    const sorted = sortMeterRecordsAsc(all);
+    const last = sorted[sorted.length - 1];
+    return last.period || ymOf(last.date) || ymOf(todayISO());
+  }
+
   function getMeterLineData(appState, type, roomNumber, ym, toDate) {
-    // FIX QUAN TRỌNG:
-    // Ưu tiên đúng kỳ period trước
     const recByPeriod = latestReadingByPeriod(appState, type, roomNumber, ym);
     const recByDate = latestReadingUpToDate(appState, type, roomNumber, toDate);
     const rec = recByPeriod || recByDate;
@@ -585,9 +590,10 @@
 
     const tenantName = getFirstTenantName(room);
 
-    const now = new Date();
-    const prev = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-    const prevYM = `${prev.getFullYear()}-${String(prev.getMonth() + 1).padStart(2, "0")}`;
+    // FIX: lấy kỳ gần nhất đã chốt của chính phòng này
+    const latestYM = getLatestMeterPeriodForRoom(appState, roomNumber);
+    const defaultFrom = firstDayOfMonth(latestYM);
+    const defaultTo = lastDayOfMonth(latestYM);
 
     const { close } = openModal(`
       <div style="display:flex; justify-content:space-between; align-items:center; gap:10px;">
@@ -598,12 +604,12 @@
       <div style="margin-top:10px; display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:12px;">
         <div>
           <label style="font-size:13px;">Từ ngày</label><br>
-          <input id="inv-from-date" type="date" value="${firstDayOfMonth(prevYM)}" style="padding:8px; width:100%;">
+          <input id="inv-from-date" type="date" value="${defaultFrom}" style="padding:8px; width:100%;">
         </div>
 
         <div>
           <label style="font-size:13px;">Đến ngày</label><br>
-          <input id="inv-to-date" type="date" value="${lastDayOfMonth(prevYM)}" style="padding:8px; width:100%;">
+          <input id="inv-to-date" type="date" value="${defaultTo}" style="padding:8px; width:100%;">
         </div>
 
         <div>
@@ -613,7 +619,7 @@
 
         <div>
           <label style="font-size:13px;">Tiêu đề</label><br>
-          <input id="inv-title" type="text" value="Hóa đơn xuất phòng ${escapeHtml(room.number)} ngày ${todayISO().split("-").reverse().join("/")}" style="padding:8px; width:100%;">
+          <input id="inv-title" type="text" value="Hóa đơn xuất phòng ${escapeHtml(room.number)} kỳ ${latestYM}" style="padding:8px; width:100%;">
         </div>
       </div>
 
@@ -641,12 +647,12 @@
     if (closeBtn) closeBtn.onclick = close;
 
     function buildDraft() {
-      const fromDate = toISO10(fromInput.value) || firstDayOfMonth(prevYM);
-      const toDate = toISO10(toInput.value) || lastDayOfMonth(prevYM);
+      const fromDate = toISO10(fromInput.value) || defaultFrom;
+      const toDate = toISO10(toInput.value) || defaultTo;
       const tenantNameVal = (tenantInput.value || "").trim();
       const titleVal =
         (titleInput.value || "").trim() ||
-        `Hóa đơn xuất phòng ${room.number} ngày ${todayISO().split("-").reverse().join("/")}`;
+        `Hóa đơn xuất phòng ${room.number} kỳ ${latestYM}`;
 
       const lines = buildInvoiceLines(room, appState, fromDate, toDate);
       const printHtml = buildPrintA5Html({
@@ -726,7 +732,7 @@
     if (saveBtn) {
       saveBtn.onclick = () => {
         const draft = buildDraft();
-        const inv = saveInvoiceToState({
+        saveInvoiceToState({
           appState,
           room: draft.room,
           tenantName: draft.tenantName,
@@ -739,7 +745,7 @@
         });
 
         msgEl.style.color = "#16a34a";
-        msgEl.innerText = `Đã tạo hóa đơn ${inv.code || ""} cho phòng ${room.number}.`;
+        msgEl.innerText = `Đã tạo hóa đơn cho phòng ${room.number}.`;
         renderPreview();
       };
     }
@@ -768,57 +774,5 @@
     renderPreview();
   }
 
-  function openInvoicesForAllOccupiedRooms(appState) {
-    ensureState(appState);
-
-    const occupiedRooms = (appState.rooms || []).filter(
-      (r) => Array.isArray(r.tenants) && r.tenants.length > 0
-    );
-
-    if (occupiedRooms.length === 0) {
-      alert("Không có phòng nào đang thuê để xuất hóa đơn.");
-      return;
-    }
-
-    const fromDate = prompt("Nhập ngày bắt đầu (YYYY-MM-DD):", firstDayOfMonth(ymOf(todayISO())));
-    if (fromDate === null) return;
-
-    const toDate = prompt("Nhập ngày kết thúc (YYYY-MM-DD):", todayISO());
-    if (toDate === null) return;
-
-    let count = 0;
-
-    occupiedRooms.forEach((room) => {
-      const tenantName = getFirstTenantName(room);
-      const title = `Hóa đơn xuất phòng ${room.number} ngày ${todayISO().split("-").reverse().join("/")}`;
-      const lines = buildInvoiceLines(room, appState, fromDate, toDate);
-      const printHtml = buildPrintA5Html({
-        title,
-        room,
-        fromDate,
-        toDate,
-        tenantName,
-        lines,
-      });
-
-      saveInvoiceToState({
-        appState,
-        room,
-        tenantName,
-        fromDate,
-        toDate,
-        lines,
-        title,
-        printHtml,
-        metaType: "monthly",
-      });
-
-      count++;
-    });
-
-    alert(`Đã tạo ${count} hóa đơn.`);
-  }
-
   window.openInvoiceForRoom = openInvoiceForRoom;
-  window.openInvoicesForAllOccupiedRooms = openInvoicesForAllOccupiedRooms;
 })();
