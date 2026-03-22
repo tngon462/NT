@@ -4,6 +4,7 @@
     title: "PHIẾU THU TIỀN PHÒNG TRỌ THIỆP MẾN",
     phone: "0963 954 006",
     bankLine: "Cop-opBank: 2700 300 512 666 888 / NGUYỄN THỊ MẾN",
+    address: "",
   };
 
   function todayISO() {
@@ -380,9 +381,17 @@
     ["electricity", "water"].forEach((type) => {
       const cfg = getUtilityConfig(appState, type);
       const meter = getMeterLineData(appState, type, roomNumber, ym, toDate);
-
       const displayName = type === "electricity" ? "Tiền điện" : "Tiền nước";
       const total = Number(cfg.price || 0) * Number(meter.used || 0);
+
+      const subNoteLines = [
+        `Số cũ: ${meter.prev}`,
+        `Số mới: ${meter.curr}`,
+        `Sử dụng: ${meter.used} ${cfg.unit || (type === "electricity" ? "kWh" : "m³")}`,
+      ];
+
+      if (meter.date) subNoteLines.push(`Ngày chốt: ${meter.date}`);
+      if (meter.period) subNoteLines.push(`Kỳ: ${meter.period}`);
 
       lines.push({
         name: displayName,
@@ -394,10 +403,7 @@
         unit: cfg.unit || (type === "electricity" ? "kWh" : "m³"),
         total,
         amount: total,
-        note:
-          `Số cũ: ${meter.prev} → Số mới: ${meter.curr}` +
-          (meter.date ? `\nNgày chốt: ${meter.date}` : "") +
-          (meter.period ? `\nKỳ: ${meter.period}` : ""),
+        note: subNoteLines.join("\n"),
         oldReading: meter.prev,
         newReading: meter.curr,
         used: meter.used,
@@ -415,22 +421,35 @@
     return [...baseLines, ...utilityLines];
   }
 
-  function buildPrintA5Html({ title, room, fromDate, toDate, tenantName, lines, depositAmount = 0, code = "" }) {
+  function buildPrintA5Html({
+    title,
+    room,
+    fromDate,
+    toDate,
+    tenantName,
+    lines,
+    depositAmount = 0,
+    code = "",
+  }) {
     const sum = lines.reduce((a, l) => a + Number(l.total || l.amount || 0), 0);
 
     const rows = lines
       .map((l, i) => {
+        const noteHtml = l.note
+          ? `<div class="line-note">${escapeHtml(l.note)}</div>`
+          : "";
+
         return `
           <tr>
-            <td class="c-stt">${i + 1}</td>
-            <td class="c-name">
-              <div class="name">${escapeHtml(l.name || l.label || "")}</div>
-              ${l.note ? `<div class="note">${escapeHtml(l.note)}</div>` : ""}
+            <td class="col-stt">${i + 1}</td>
+            <td class="col-name">
+              <div class="line-name">${escapeHtml(l.name || l.label || "")}</div>
+              ${noteHtml}
             </td>
-            <td class="c-unitprice">${fmtMoney(l.unitPrice)}</td>
-            <td class="c-qty">${fmtMoney(l.qty)}</td>
-            <td class="c-unit">${escapeHtml(l.unit || "")}</td>
-            <td class="c-total">${fmtMoney(l.total || l.amount || 0)}</td>
+            <td class="col-unitprice">${fmtMoney(l.unitPrice)}</td>
+            <td class="col-qty">${fmtMoney(l.qty)}</td>
+            <td class="col-unit">${escapeHtml(l.unit || "")}</td>
+            <td class="col-total">${fmtMoney(l.total || l.amount || 0)}</td>
           </tr>
         `;
       })
@@ -441,29 +460,217 @@
 <html>
 <head>
   <meta charset="utf-8" />
-  <title>${escapeHtml(title)}</title>
+  <title>${escapeHtml(title || BRAND.title)}</title>
   <style>
-    @page { size: A5 portrait; margin: 8mm; }
-    body { font-family: Arial, sans-serif; font-size: 12px; margin: 0; }
-    .toolbar { padding: 8px; border-bottom: 1px solid #ddd; display:flex; gap:8px; align-items:center; }
-    .toolbar button { padding: 6px 10px; font-size: 12px; cursor:pointer; }
-    .header { text-align:center; margin-top: 4px; }
-    .title { font-size: 15px; font-weight: 900; }
-    .sub { margin-top: 6px; font-size: 11px; line-height: 1.3; }
-    .meta { margin-top: 10px; font-size: 12px; line-height: 1.4; }
-    .tbl { width:100%; border-collapse:collapse; margin-top:10px; }
-    .tbl th, .tbl td { border:1px solid #333; padding:4px; vertical-align:top; }
-    .tbl th { background:#f2f2f2; }
-    .c-stt { width:34px; text-align:center; }
-    .c-unitprice, .c-qty, .c-total { width:80px; text-align:right; }
-    .c-unit { width:45px; text-align:center; }
-    .note { margin-top:2px; font-size:10px; color:#555; white-space:pre-line; }
-    .sum { margin-top:10px; }
-    .sum-row { display:flex; justify-content:space-between; border:1px solid #333; padding:6px; }
-    .sum-row .label { font-weight:900; }
-    .sum-row .value { font-weight:900; font-size:13px; }
-    .code { font-size: 11px; color:#555; margin-top:4px; }
-    @media print { .toolbar { display:none; } }
+    @page {
+      size: A5 portrait;
+      margin: 8mm;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: Arial, Helvetica, sans-serif;
+      color: #111827;
+      font-size: 12px;
+      background: #fff;
+    }
+
+    .toolbar {
+      padding: 8px;
+      border-bottom: 1px solid #d1d5db;
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      background: #fff;
+    }
+
+    .toolbar button {
+      padding: 6px 10px;
+      font-size: 12px;
+      cursor: pointer;
+      border: 1px solid #cbd5e1;
+      background: #f8fafc;
+      border-radius: 6px;
+    }
+
+    .page {
+      padding: 4px 2px 0;
+    }
+
+    .doc-header {
+      text-align: center;
+      border: 1.5px solid #111827;
+      padding: 10px 10px 8px;
+      margin-bottom: 8px;
+    }
+
+    .doc-title {
+      font-size: 18px;
+      font-weight: 800;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      margin-bottom: 4px;
+    }
+
+    .doc-subtitle {
+      font-size: 11px;
+      color: #374151;
+      line-height: 1.45;
+    }
+
+    .invoice-code {
+      margin-top: 4px;
+      font-size: 11px;
+      color: #4b5563;
+    }
+
+    .meta-grid {
+      width: 100%;
+      border: 1px solid #111827;
+      border-bottom: none;
+      margin-bottom: 0;
+    }
+
+    .meta-row {
+      display: grid;
+      grid-template-columns: 118px 1fr;
+      border-bottom: 1px solid #111827;
+      min-height: 28px;
+    }
+
+    .meta-label {
+      padding: 6px 8px;
+      font-weight: 700;
+      border-right: 1px solid #111827;
+      background: #f9fafb;
+    }
+
+    .meta-value {
+      padding: 6px 8px;
+    }
+
+    .invoice-table {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+      margin-top: 0;
+    }
+
+    .invoice-table th,
+    .invoice-table td {
+      border: 1px solid #111827;
+      padding: 6px 6px;
+      vertical-align: top;
+    }
+
+    .invoice-table th {
+      text-align: center;
+      font-weight: 700;
+      background: #f3f4f6;
+    }
+
+    .col-stt {
+      width: 34px;
+      text-align: center;
+    }
+
+    .col-name {
+      width: auto;
+    }
+
+    .col-unitprice {
+      width: 78px;
+      text-align: right;
+      white-space: nowrap;
+    }
+
+    .col-qty {
+      width: 54px;
+      text-align: right;
+      white-space: nowrap;
+    }
+
+    .col-unit {
+      width: 48px;
+      text-align: center;
+      white-space: nowrap;
+    }
+
+    .col-total {
+      width: 92px;
+      text-align: right;
+      white-space: nowrap;
+      font-weight: 700;
+    }
+
+    .line-name {
+      font-weight: 700;
+      margin-bottom: 2px;
+    }
+
+    .line-note {
+      font-size: 10px;
+      line-height: 1.35;
+      color: #6b7280;
+      white-space: pre-line;
+    }
+
+    .summary-box {
+      border: 1.5px solid #111827;
+      border-top: none;
+      padding: 8px 10px;
+      margin-top: 0;
+    }
+
+    .summary-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      font-size: 13px;
+      font-weight: 800;
+    }
+
+    .summary-value {
+      font-size: 16px;
+      font-weight: 800;
+    }
+
+    .footer-note {
+      margin-top: 10px;
+      font-size: 10px;
+      color: #4b5563;
+      line-height: 1.5;
+    }
+
+    .sign-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 24px;
+      margin-top: 14px;
+      text-align: center;
+      font-size: 11px;
+    }
+
+    .sign-title {
+      font-weight: 700;
+      margin-bottom: 48px;
+    }
+
+    @media print {
+      .toolbar {
+        display: none;
+      }
+
+      body {
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }
+    }
   </style>
 </head>
 <body>
@@ -472,40 +679,73 @@
     <button onclick="window.close()">✖ Đóng</button>
   </div>
 
-  <div class="header">
-    <div class="title">${escapeHtml(title || BRAND.title)}</div>
-    ${code ? `<div class="code">Mã hóa đơn: ${escapeHtml(code)}</div>` : ""}
-    <div class="sub">
-      <div><b>SĐT:</b> ${escapeHtml(BRAND.phone)}</div>
-      <div><b>STK:</b> ${escapeHtml(BRAND.bankLine)}</div>
+  <div class="page">
+    <div class="doc-header">
+      <div class="doc-title">${escapeHtml(title || BRAND.title)}</div>
+      ${code ? `<div class="invoice-code">Mã hóa đơn: ${escapeHtml(code)}</div>` : ""}
+      <div class="doc-subtitle">
+        <div><b>SĐT:</b> ${escapeHtml(BRAND.phone)}</div>
+        <div><b>STK:</b> ${escapeHtml(BRAND.bankLine)}</div>
+        ${BRAND.address ? `<div><b>Địa chỉ:</b> ${escapeHtml(BRAND.address)}</div>` : ""}
+      </div>
     </div>
-  </div>
 
-  <div class="meta">
-    <div><b>Phòng số:</b> ${escapeHtml(room.number)}</div>
-    <div><b>Tiền cọc:</b> ${fmtMoney(depositAmount)} đ</div>
-    <div><b>Thời gian:</b> từ ${escapeHtml(fromDate)} đến ${escapeHtml(toDate)}</div>
-    <div><b>Người thuê:</b> ${escapeHtml(tenantName || "(chưa có)")}</div>
-  </div>
+    <div class="meta-grid">
+      <div class="meta-row">
+        <div class="meta-label">Phòng số</div>
+        <div class="meta-value"><b>${escapeHtml(room.number)}</b></div>
+      </div>
+      <div class="meta-row">
+        <div class="meta-label">Người thuê</div>
+        <div class="meta-value">${escapeHtml(tenantName || "(chưa có)")}</div>
+      </div>
+      <div class="meta-row">
+        <div class="meta-label">Thời gian tính tiền</div>
+        <div class="meta-value">Từ <b>${escapeHtml(fromDate)}</b> đến <b>${escapeHtml(toDate)}</b></div>
+      </div>
+      <div class="meta-row">
+        <div class="meta-label">Tiền cọc</div>
+        <div class="meta-value"><b>${fmtMoney(depositAmount)} đ</b></div>
+      </div>
+    </div>
 
-  <table class="tbl">
-    <thead>
-      <tr>
-        <th class="c-stt">STT</th>
-        <th class="c-name">Nội dung</th>
-        <th class="c-unitprice">Đơn giá</th>
-        <th class="c-qty">SL</th>
-        <th class="c-unit">ĐV</th>
-        <th class="c-total">Thành tiền</th>
-      </tr>
-    </thead>
-    <tbody>${rows}</tbody>
-  </table>
+    <table class="invoice-table">
+      <thead>
+        <tr>
+          <th class="col-stt">STT</th>
+          <th class="col-name">Nội dung</th>
+          <th class="col-unitprice">Đơn giá</th>
+          <th class="col-qty">SL</th>
+          <th class="col-unit">ĐV</th>
+          <th class="col-total">Thành tiền</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rows}
+      </tbody>
+    </table>
 
-  <div class="sum">
-    <div class="sum-row">
-      <div class="label">Tổng cộng</div>
-      <div class="value">${fmtMoney(sum)} đ</div>
+    <div class="summary-box">
+      <div class="summary-row">
+        <div>TỔNG CỘNG THANH TOÁN</div>
+        <div class="summary-value">${fmtMoney(sum)} đ</div>
+      </div>
+    </div>
+
+    <div class="footer-note">
+      Ghi chú: Hóa đơn đã bao gồm các khoản phí được liệt kê phía trên.  
+      Riêng điện / nước, chỉ số cũ - mới và sản lượng tiêu thụ đã được ghi chú nhỏ ngay dưới tên dịch vụ để tiện đối chiếu.
+    </div>
+
+    <div class="sign-row">
+      <div>
+        <div class="sign-title">Người lập phiếu</div>
+        <div>(Ký, ghi rõ họ tên)</div>
+      </div>
+      <div>
+        <div class="sign-title">Người nộp tiền</div>
+        <div>(Ký, ghi rõ họ tên)</div>
+      </div>
     </div>
   </div>
 </body>
@@ -616,7 +856,6 @@
         return `<div class="page">${body}</div>`;
       }
 
-      const room = { number: inv.roomNumber };
       return `
         <div class="page">
           <div style="padding:10mm; font-family:Arial,sans-serif;">
