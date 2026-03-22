@@ -1,5 +1,6 @@
 // js/invoice.js
 // Tạo hóa đơn tháng cho 1 phòng (A5 dọc) + lưu vào Tab Hóa đơn
+// FIX: lấy số điện/nước theo period hoặc date, ưu tiên đúng kỳ hóa đơn
 
 (function () {
   const BRAND = {
@@ -72,6 +73,7 @@
   function ensureState(appState) {
     if (!Array.isArray(appState.rooms)) appState.rooms = [];
     if (!Array.isArray(appState.costs)) appState.costs = [];
+
     if (!appState.costUnitPrices) {
       appState.costUnitPrices = {
         electricity: { price: 0, unit: "kWh" },
@@ -84,6 +86,7 @@
     if (!appState.costUnitPrices.water) {
       appState.costUnitPrices.water = { price: 0, unit: "m³" };
     }
+
     if (!appState.meters) {
       appState.meters = {
         electricity: { lastReadings: {}, history: [] },
@@ -96,6 +99,7 @@
     if (!appState.meters.water) {
       appState.meters.water = { lastReadings: {}, history: [] };
     }
+
     if (!Array.isArray(appState.invoices)) appState.invoices = [];
   }
 
@@ -150,60 +154,86 @@
     return Array.isArray(meter.history) ? meter.history : [];
   }
 
-  function latestReadingInMonth(appState, type, roomNumber, ym) {
-    const hist = getMeterHistory(appState, type);
-    let best = null;
-
-    for (let i = hist.length - 1; i >= 0; i--) {
-      const h = hist[i];
-      if (String(h.roomNumber) !== String(roomNumber)) continue;
-      if (!h.date) continue;
-      if (ymOf(h.date) !== ym) continue;
-      best = h;
-      break;
-    }
-
-    return best;
+  function safeNum(v) {
+    const n = Number(v);
+    return Number.isNaN(n) ? 0 : n;
   }
 
-  function latestReadingUpToDate(appState, type, roomNumber, toDate) {
-    const hist = getMeterHistory(appState, type);
-    let best = null;
-
-    for (let i = hist.length - 1; i >= 0; i--) {
-      const h = hist[i];
-      if (String(h.roomNumber) !== String(roomNumber)) continue;
-      if (!h.date) continue;
-      if (toISO10(h.date) > toDate) continue;
-      best = h;
-      break;
-    }
-
-    return best;
+  function normalizeMeterRecord(h) {
+    return {
+      roomNumber: String(h?.roomNumber || ""),
+      period: String(h?.period || ""),
+      date: toISO10(h?.date || ""),
+      prev: safeNum(h?.prev),
+      curr: safeNum(h?.curr),
+      used:
+        h?.used != null && !Number.isNaN(Number(h.used))
+          ? Number(h.used)
+          : Math.max(0, safeNum(h?.curr) - safeNum(h?.prev)),
+      savedAt: h?.savedAt || "",
+    };
   }
 
-  function prevReadingBeforeMonth(appState, type, roomNumber, ym) {
-    const start = firstDayOfMonth(ym);
-    const hist = getMeterHistory(appState, type);
+  function getRoomMeterRecords(appState, type, roomNumber) {
+    return getMeterHistory(appState, type)
+      .map(normalizeMeterRecord)
+      .filter((h) => String(h.roomNumber) === String(roomNumber));
+  }
 
-    for (let i = hist.length - 1; i >= 0; i--) {
-      const h = hist[i];
-      if (String(h.roomNumber) !== String(roomNumber)) continue;
-      if (!h.date) continue;
-      if (h.date < start) return Number(h.curr || 0);
-    }
+  function sortMeterRecordsAsc(records) {
+    return records.slice().sort((a, b) => {
+      const ka = `${a.period || ""}|${a.date || ""}|${a.savedAt || ""}`;
+      const kb = `${b.period || ""}|${b.date || ""}|${b.savedAt || ""}`;
+      return ka.localeCompare(kb);
+    });
+  }
 
-    return 0;
+  function getLatestRecordByPeriod(appState, type, roomNumber, ym) {
+    const records = getRoomMeterRecords(appState, type, roomNumber)
+      .filter((h) => String(h.period || "") === String(ym));
+
+    if (!records.length) return null;
+
+    const sorted = sortMeterRecordsAsc(records);
+    return sorted[sorted.length - 1];
+  }
+
+  function getLatestRecordUpToDate(appState, type, roomNumber, toDate) {
+    const records = getRoomMeterRecords(appState, type, roomNumber)
+      .filter((h) => h.date && h.date <= toDate);
+
+    if (!records.length) return null;
+
+    const sorted = sortMeterRecordsAsc(records);
+    return sorted[sorted.length - 1];
+  }
+
+  function getPreviousRecordBeforePeriod(appState, type, roomNumber, ym) {
+    const records = getRoomMeterRecords(appState, type, roomNumber)
+      .filter((h) => {
+        if (h.period) return h.period < ym;
+        if (h.date) return ymOf(h.date) < ym;
+        return false;
+      });
+
+    if (!records.length) return null;
+
+    const sorted = sortMeterRecordsAsc(records);
+    return sorted[sorted.length - 1];
   }
 
   function getMeterLineData(appState, type, roomNumber, ym, toDate) {
-    const recInMonth = latestReadingInMonth(appState, type, roomNumber, ym);
-    const recAny = latestReadingUpToDate(appState, type, roomNumber, toDate);
-    const rec = recInMonth || recAny;
+    // Ưu tiên:
+    // 1) bản ghi đúng kỳ period = ym
+    // 2) bản ghi mới nhất có date <= toDate
+    // 3) fallback về record trước đó để có số cũ/số mới bằng nhau
+    const recByPeriod = getLatestRecordByPeriod(appState, type, roomNumber, ym);
+    const recByDate = getLatestRecordUpToDate(appState, type, roomNumber, toDate);
+    const rec = recByPeriod || recByDate;
 
     if (rec) {
-      const prev = Number(rec.prev || 0);
-      const curr = Number(rec.curr || 0);
+      const prev = safeNum(rec.prev);
+      const curr = safeNum(rec.curr);
       const used =
         rec.used != null && !Number.isNaN(Number(rec.used))
           ? Number(rec.used)
@@ -216,16 +246,18 @@
         date: rec.date || "",
         period: rec.period || ym,
         hasData: true,
-        source: recInMonth ? "month" : "latest",
+        source: recByPeriod ? "period" : "date",
       };
     }
 
-    const fallbackPrev = prevReadingBeforeMonth(appState, type, roomNumber, ym);
+    const prevRec = getPreviousRecordBeforePeriod(appState, type, roomNumber, ym);
+    const fallback = prevRec ? safeNum(prevRec.curr) : 0;
+
     return {
-      prev: fallbackPrev,
-      curr: fallbackPrev,
+      prev: fallback,
+      curr: fallback,
       used: 0,
-      date: "",
+      date: prevRec?.date || "",
       period: ym,
       hasData: false,
       source: "none",
@@ -234,6 +266,7 @@
 
   function calcRentLine(room, fromDate, toDate) {
     const priceMonth = Number(room.price || 0);
+
     if (!priceMonth) {
       return {
         name: "Tiền phòng",
@@ -249,7 +282,6 @@
     const monthFirst = firstDayOfMonth(ym);
     const monthLast = lastDayOfMonth(ym);
     const daysInMonth = daysBetweenInclusive(monthFirst, monthLast);
-
     const stayDays = daysBetweenInclusive(fromDate, toDate);
     const isFullMonth = fromDate === monthFirst && toDate === monthLast;
 
@@ -343,9 +375,10 @@
         qty: Number(meter.used || 0),
         unit: cfg.unit || (type === "electricity" ? "kWh" : "m³"),
         total,
-        note: `Số cũ: ${meter.prev} → Số mới: ${meter.curr}${
-          meter.date ? `\nNgày chốt: ${meter.date}` : ""
-        }`,
+        note:
+          `Số cũ: ${meter.prev} → Số mới: ${meter.curr}` +
+          (meter.date ? `\nNgày chốt: ${meter.date}` : "") +
+          (meter.period ? `\nKỳ: ${meter.period}` : ""),
         meterType: type,
         oldReading: meter.prev,
         newReading: meter.curr,
@@ -534,12 +567,14 @@
       periodTo: toDate,
       title,
       lines,
+      items: lines, // thêm để tương thích tab-invoices cũ/new
       totalAmount,
-      total: totalAmount, // giữ thêm cho file cũ đang đọc inv.total
+      total: totalAmount,
       printHtml,
       status: "unpaid",
       missingAmount: 0,
       deleted: false,
+      isDeleted: false,
       meta: {
         type: metaType,
       },
@@ -549,7 +584,6 @@
       return window.addInvoice(invoice);
     }
 
-    // fallback nếu thiếu addInvoice
     if (!Array.isArray(appState.invoices)) appState.invoices = [];
     invoice.id = `inv_${Date.now()}_${Math.random().toString(16).slice(2)}`;
     appState.invoices.unshift(invoice);
