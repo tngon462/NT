@@ -462,15 +462,8 @@
   <meta charset="utf-8" />
   <title>${escapeHtml(title || BRAND.title)}</title>
   <style>
-    @page {
-      size: A5 portrait;
-      margin: 8mm;
-    }
-
-    * {
-      box-sizing: border-box;
-    }
-
+    @page { size: A5 portrait; margin: 8mm; }
+    * { box-sizing: border-box; }
     body {
       margin: 0;
       font-family: Arial, Helvetica, sans-serif;
@@ -478,7 +471,6 @@
       font-size: 12px;
       background: #fff;
     }
-
     .toolbar {
       padding: 8px;
       border-bottom: 1px solid #d1d5db;
@@ -487,7 +479,6 @@
       align-items: center;
       background: #fff;
     }
-
     .toolbar button {
       padding: 6px 10px;
       font-size: 12px;
@@ -496,18 +487,13 @@
       background: #f8fafc;
       border-radius: 6px;
     }
-
-    .page {
-      padding: 4px 2px 0;
-    }
-
+    .page { padding: 4px 2px 0; }
     .doc-header {
       text-align: center;
       border: 1.5px solid #111827;
       padding: 10px 10px 8px;
       margin-bottom: 8px;
     }
-
     .doc-title {
       font-size: 18px;
       font-weight: 800;
@@ -515,117 +501,71 @@
       text-transform: uppercase;
       margin-bottom: 4px;
     }
-
     .doc-subtitle {
       font-size: 11px;
       color: #374151;
       line-height: 1.45;
     }
-
     .invoice-code {
       margin-top: 4px;
       font-size: 11px;
       color: #4b5563;
     }
-
     .meta-grid {
       width: 100%;
       border: 1px solid #111827;
       border-bottom: none;
       margin-bottom: 0;
     }
-
     .meta-row {
       display: grid;
       grid-template-columns: 118px 1fr;
       border-bottom: 1px solid #111827;
       min-height: 28px;
     }
-
     .meta-label {
       padding: 6px 8px;
       font-weight: 700;
       border-right: 1px solid #111827;
       background: #f9fafb;
     }
-
-    .meta-value {
-      padding: 6px 8px;
-    }
-
+    .meta-value { padding: 6px 8px; }
     .invoice-table {
       width: 100%;
       border-collapse: collapse;
       table-layout: fixed;
       margin-top: 0;
     }
-
     .invoice-table th,
     .invoice-table td {
       border: 1px solid #111827;
       padding: 6px 6px;
       vertical-align: top;
     }
-
     .invoice-table th {
       text-align: center;
       font-weight: 700;
       background: #f3f4f6;
     }
-
-    .col-stt {
-      width: 34px;
-      text-align: center;
-    }
-
-    .col-name {
-      width: auto;
-    }
-
-    .col-unitprice {
-      width: 78px;
-      text-align: right;
-      white-space: nowrap;
-    }
-
-    .col-qty {
-      width: 54px;
-      text-align: right;
-      white-space: nowrap;
-    }
-
-    .col-unit {
-      width: 48px;
-      text-align: center;
-      white-space: nowrap;
-    }
-
-    .col-total {
-      width: 92px;
-      text-align: right;
-      white-space: nowrap;
-      font-weight: 700;
-    }
-
-    .line-name {
-      font-weight: 700;
-      margin-bottom: 2px;
-    }
-
+    .col-stt { width: 34px; text-align: center; }
+    .col-name { width: auto; }
+    .col-unitprice { width: 78px; text-align: right; white-space: nowrap; }
+    .col-qty { width: 54px; text-align: right; white-space: nowrap; }
+    .col-unit { width: 48px; text-align: center; white-space: nowrap; }
+    .col-total { width: 92px; text-align: right; white-space: nowrap; font-weight: 700; }
+    .line-name { font-weight: 700; margin-bottom: 2px; }
     .line-note {
       font-size: 10px;
       line-height: 1.35;
       color: #6b7280;
       white-space: pre-line;
     }
-
     .summary-box {
       border: 1.5px solid #111827;
       border-top: none;
       padding: 8px 10px;
       margin-top: 0;
     }
-
     .summary-row {
       display: flex;
       justify-content: space-between;
@@ -634,19 +574,16 @@
       font-size: 13px;
       font-weight: 800;
     }
-
     .summary-value {
       font-size: 16px;
       font-weight: 800;
     }
-
     .footer-note {
       margin-top: 10px;
       font-size: 10px;
       color: #4b5563;
       line-height: 1.5;
     }
-
     .sign-row {
       display: grid;
       grid-template-columns: 1fr 1fr;
@@ -655,17 +592,12 @@
       text-align: center;
       font-size: 11px;
     }
-
     .sign-title {
       font-weight: 700;
       margin-bottom: 48px;
     }
-
     @media print {
-      .toolbar {
-        display: none;
-      }
-
+      .toolbar { display: none; }
       body {
         -webkit-print-color-adjust: exact;
         print-color-adjust: exact;
@@ -733,7 +665,7 @@
     </div>
 
     <div class="footer-note">
-      Ghi chú: Hóa đơn đã bao gồm các khoản phí được liệt kê phía trên.  
+      Ghi chú: Hóa đơn đã bao gồm các khoản phí được liệt kê phía trên.
       Riêng điện / nước, chỉ số cũ - mới và sản lượng tiêu thụ đã được ghi chú nhỏ ngay dưới tên dịch vụ để tiện đối chiếu.
     </div>
 
