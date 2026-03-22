@@ -1,7 +1,7 @@
 // js/checkout.js
 // Trả phòng: review đầy đủ -> chốt điện/nước theo NGÀY CHỌN -> chỉnh sửa chi phí -> thêm phí tay
 // -> xác nhận -> in phiếu A5 -> lưu hóa đơn trả phòng vào tab Hóa đơn -> clear tenant + set moveOutDate
-// V2 FIX: Thiết bị trong phòng gom theo deviceId + qty (deviceAssignments mỗi dòng = 1 cái)
+// + HỖ TRỢ TIỀN CỌC: hiển thị cọc, tính hoàn cọc / thu thêm, in ra phiếu, reset cọc sau khi trả phòng
 
 (function () {
   const BRAND = {
@@ -69,7 +69,7 @@
 
   function fmtMoney(n) {
     const x = Number(n || 0);
-    return Number.isNaN(x) ? "0" : x.toLocaleString();
+    return Number.isNaN(x) ? "0" : x.toLocaleString("vi-VN");
   }
 
   function ensureState(appState) {
@@ -102,6 +102,11 @@
   function getFirstTenantName(room) {
     if (!room || !Array.isArray(room.tenants) || room.tenants.length === 0) return "";
     return room.tenants[0]?.fullName || "";
+  }
+
+  function getRoomDeposit(room) {
+    const n = Number(room?.deposit || 0);
+    return Number.isNaN(n) ? 0 : n;
   }
 
   // ===== meters =====
@@ -268,7 +273,19 @@
   }
 
   // ===== Print A5 =====
-  function buildPrintA5Html({ title, room, fromDate, toDate, tenantName, lines, extraNotesLines }) {
+  function buildPrintA5Html({
+    title,
+    room,
+    fromDate,
+    toDate,
+    tenantName,
+    lines,
+    extraNotesLines,
+    depositAmount = 0,
+    totalBeforeDeposit = 0,
+    refundAmount = 0,
+    needPayMore = 0,
+  }) {
     const sum = lines.reduce((a, l) => a + Number(l.total || 0), 0);
 
     const rows = lines
@@ -316,7 +333,7 @@
     .title { font-size: 15px; font-weight: 900; letter-spacing: .2px; }
     .sub { margin-top: 6px; font-size: 11px; line-height: 1.3; }
 
-    .meta { margin-top: 10px; font-size: 12px; line-height: 1.4; }
+    .meta { margin-top: 10px; font-size: 12px; line-height: 1.5; }
 
     .tbl { width:100%; border-collapse:collapse; margin-top:10px; }
     .tbl th, .tbl td { border:1px solid #333; padding:4px; vertical-align:top; }
@@ -326,7 +343,7 @@
     .c-unit { width:45px; text-align:center; }
     .note { margin-top:2px; font-size:10px; color:#555; }
 
-    .sum { margin-top:10px; }
+    .sum { margin-top:10px; display:grid; gap:6px; }
     .sum-row { display:flex; justify-content:space-between; border:1px solid #333; padding:6px; }
     .sum-row .label { font-weight:900; }
     .sum-row .value { font-weight:900; font-size:13px; }
@@ -361,6 +378,7 @@
 
     <div class="meta">
       <div><b>Phòng số:</b> ${escapeHtml(room.number)}</div>
+      <div><b>Tiền cọc:</b> ${fmtMoney(depositAmount)} đ</div>
       <div><b>Thời gian:</b> từ ${escapeHtml(fromDate)} đến ${escapeHtml(toDate)}</div>
       <div><b>Người thuê:</b> ${escapeHtml(tenantName || "(chưa có)")}</div>
     </div>
@@ -383,8 +401,20 @@
 
     <div class="sum">
       <div class="sum-row">
-        <div class="label">Tổng cộng</div>
+        <div class="label">Tổng chi phí</div>
         <div class="value">${fmtMoney(sum)} đ</div>
+      </div>
+      <div class="sum-row">
+        <div class="label">Tiền cọc đã nhận</div>
+        <div class="value">${fmtMoney(depositAmount)} đ</div>
+      </div>
+      <div class="sum-row">
+        <div class="label">Cần hoàn khách</div>
+        <div class="value">${fmtMoney(refundAmount)} đ</div>
+      </div>
+      <div class="sum-row">
+        <div class="label">Khách cần trả thêm</div>
+        <div class="value">${fmtMoney(needPayMore)} đ</div>
       </div>
     </div>
 
@@ -422,11 +452,12 @@
     const room = getRoom(appState, roomNumber);
     if (!room) return alert("Không tìm thấy phòng: " + roomNumber);
 
+    if (room.deposit == null || Number.isNaN(Number(room.deposit))) room.deposit = 0;
+
     const defaultMeterDate = todayISO();
     const fromDateDefault = toISO10(room.moveInDate) || firstDayOfMonth(ymOf(defaultMeterDate));
+    const depositAmount = getRoomDeposit(room);
 
-    // ==== DEVICES (V2 FIX) ====
-    // deviceAssignments: [{deviceId, roomNumber}] mỗi dòng = 1 cái
     const roomAssigned = (appState.deviceAssignments || []).filter(
       (a) => String(a.roomNumber) === String(room.number)
     );
@@ -442,14 +473,13 @@
       const dev = (appState.devices || []).find((d) => String(d.id) === String(deviceId));
       return {
         deviceId,
-        deviceName: dev?.name || a?.deviceName || "(Thiết bị)",
+        deviceName: dev?.name || "(Thiết bị)",
         qty: Number(qty || 0),
       };
     });
 
     const tenantName = getFirstTenantName(room);
 
-    // Modal review
     const { close } = openModal(`
       <div style="display:flex; justify-content:space-between; align-items:center; gap:10px;">
         <h3 style="margin:0;">🚪 Trả phòng ${escapeHtml(room.number)}</h3>
@@ -459,9 +489,10 @@
       <div style="margin-top:10px; display:grid; gap:12px;">
         <section style="border:1px solid #e5e7eb; border-radius:12px; padding:10px;">
           <div style="font-weight:900; margin-bottom:6px;">Thông tin phòng / người thuê</div>
-          <div style="font-size:13px; line-height:1.5;">
+          <div style="font-size:13px; line-height:1.6;">
             <div><b>Phòng:</b> ${escapeHtml(room.number)}</div>
             <div><b>Giá phòng:</b> ${fmtMoney(room.price)} đ / tháng</div>
+            <div><b>Tiền cọc:</b> ${fmtMoney(depositAmount)} đ</div>
             <div><b>Ngày vào phòng:</b> ${escapeHtml(toISO10(room.moveInDate) || "(chưa có)")}</div>
             <div><b>Người thuê:</b> ${escapeHtml(tenantName || "(chưa có)")}</div>
           </div>
@@ -554,7 +585,15 @@
           </div>
 
           <div style="display:flex; justify-content:flex-end; margin-top:10px;">
-            <div style="font-weight:900; font-size:16px;">Tổng cộng: <span id="co-sum">0</span> đ</div>
+            <div style="font-weight:900; font-size:16px;">Tổng chi phí: <span id="co-sum">0</span> đ</div>
+          </div>
+
+          <div style="display:flex; justify-content:flex-end; margin-top:8px;">
+            <div style="font-weight:700; font-size:14px;">Tiền cọc: <span id="co-deposit-view">${fmtMoney(depositAmount)}</span> đ</div>
+          </div>
+
+          <div style="display:flex; justify-content:flex-end; margin-top:8px;">
+            <div id="co-final-balance" style="font-weight:900; font-size:16px;">Cần hoàn khách: 0 đ</div>
           </div>
         </section>
 
@@ -568,7 +607,6 @@
 
     document.getElementById("co-close").onclick = close;
 
-    // ===== Render thiết bị trong phòng =====
     if (devicesInRoom.length) {
       const devBody = document.getElementById("co-dev-body");
       devBody.innerHTML = devicesInRoom
@@ -597,7 +635,6 @@
         .join("");
     }
 
-    // ===== meters context =====
     const meterDateInput = document.getElementById("co-meter-date");
     const elecCurrInput = document.getElementById("co-elec-curr");
     const waterCurrInput = document.getElementById("co-water-curr");
@@ -607,26 +644,43 @@
     const waterMoneyEl = document.getElementById("co-water-money");
     const elecMeta = document.getElementById("co-elec-meta");
     const waterMeta = document.getElementById("co-water-meta");
+    const finalBalanceEl = document.getElementById("co-final-balance");
 
     const elecPrice = Number(appState.costUnitPrices?.electricity?.price || 0);
     const waterPrice = Number(appState.costUnitPrices?.water?.price || 0);
     const elecUnit = appState.costUnitPrices?.electricity?.unit || "kWh";
     const waterUnit = appState.costUnitPrices?.water?.unit || "m³";
 
-    document.getElementById("co-elec-price").textContent = `${fmtMoney(elecPrice)} / ${escapeHtml(elecUnit)}`;
-    document.getElementById("co-water-price").textContent = `${fmtMoney(waterPrice)} / ${escapeHtml(waterUnit)}`;
+    document.getElementById("co-elec-price").textContent = `${fmtMoney(elecPrice)} / ${elecUnit}`;
+    document.getElementById("co-water-price").textContent = `${fmtMoney(waterPrice)} / ${waterUnit}`;
 
     meterDateInput.value = defaultMeterDate;
 
     let elecPrev = 0;
     let waterPrev = 0;
 
-    // ===== costs table =====
     const costBody = document.getElementById("co-cost-body");
     const sumEl = document.getElementById("co-sum");
     const addLineBtn = document.getElementById("co-add-line");
 
     const lines = [];
+
+    function updateFinalBalance(sum) {
+      const totalCost = Number(sum || 0);
+      const refundAmount = Math.max(0, depositAmount - totalCost);
+      const needPayMore = Math.max(0, totalCost - depositAmount);
+
+      if (refundAmount > 0) {
+        finalBalanceEl.innerText = `Cần hoàn khách: ${fmtMoney(refundAmount)} đ`;
+        finalBalanceEl.style.color = "#16a34a";
+      } else if (needPayMore > 0) {
+        finalBalanceEl.innerText = `Khách cần trả thêm: ${fmtMoney(needPayMore)} đ`;
+        finalBalanceEl.style.color = "#b91c1c";
+      } else {
+        finalBalanceEl.innerText = `Đã cân bằng: 0 đ`;
+        finalBalanceEl.style.color = "#374151";
+      }
+    }
 
     function ensureMeterLines() {
       if (!lines.some((x) => x._meterType === "electricity")) {
@@ -723,6 +777,7 @@
       });
 
       sumEl.textContent = fmtMoney(sum);
+      updateFinalBalance(sum);
     }
 
     function wireCostHandlers() {
@@ -741,8 +796,6 @@
     }
 
     function recalcMeters() {
-      const d = toISO10(meterDateInput.value) || todayISO();
-
       const elecIdx = lines.findIndex((x) => x._meterType === "electricity");
       const waterIdx = lines.findIndex((x) => x._meterType === "water");
 
@@ -836,10 +889,8 @@
       recalcCostsFromDOM();
     };
 
-    // init
     refreshMeterContext();
 
-    // ===== Confirm =====
     document.getElementById("co-confirm").onclick = () => {
       const meterDate = toISO10(meterDateInput.value);
       if (!meterDate) return alert("Chưa chọn ngày chốt điện/nước.");
@@ -905,7 +956,13 @@
       const finalLines = lines.map((x) => ({ ...x }));
       deviceChargeLines.forEach((x) => finalLines.push(x));
 
-      const total = finalLines.reduce((a, l) => a + Number(l.total || 0), 0);
+      const totalCost = finalLines.reduce((a, l) => a + Number(l.total || 0), 0);
+      const refundAmount = Math.max(0, depositAmount - totalCost);
+      const needPayMore = Math.max(0, totalCost - depositAmount);
+
+      if (refundAmount > 0) extraNotes.push(`Hoàn cọc cho khách: ${fmtMoney(refundAmount)}đ`);
+      if (needPayMore > 0) extraNotes.push(`Khách cần trả thêm: ${fmtMoney(needPayMore)}đ`);
+      if (depositAmount > 0 && totalCost === depositAmount) extraNotes.push(`Tiền cọc vừa đủ bù toàn bộ chi phí.`);
 
       const printHtml = buildPrintA5Html({
         title: BRAND.titleCheckout,
@@ -915,6 +972,10 @@
         tenantName: tenantName || "(chưa có)",
         lines: finalLines,
         extraNotesLines: extraNotes,
+        depositAmount,
+        totalBeforeDeposit: totalCost,
+        refundAmount,
+        needPayMore,
       });
 
       if (window.addInvoice) {
@@ -923,15 +984,18 @@
           tenantName: tenantName || "",
           issueDate: todayISO(),
           invoiceDate: toDate,
-          total,
+          total: totalCost,
           status: "unpaid",
-          missingAmount: 0,
+          missingAmount: needPayMore,
           lines: finalLines,
           meta: {
             type: "checkout",
             periodFrom: fromDate,
             periodTo: toDate,
             meterDate,
+            depositAmount,
+            refundAmount,
+            needPayMore,
             electricity: { prev: elecCalc.prev, curr: elecCalc.curr, used: elecCalc.used, unitPrice: elecPrice, unit: elecUnit },
             water: { prev: waterCalc.prev, curr: waterCalc.curr, used: waterCalc.used, unitPrice: waterPrice, unit: waterUnit },
             extraNotes,
@@ -940,9 +1004,9 @@
         });
       }
 
-      // Clear room state
       room.moveOutDate = todayISO();
       room.tenants = [];
+      room.deposit = 0;
 
       if (window.saveAppState) window.saveAppState();
 
