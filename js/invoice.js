@@ -1,4 +1,5 @@
 // js/invoice.js
+
 (function () {
   const BRAND = {
     title: "PHIẾU THU TIỀN PHÒNG TRỌ THIỆP MẾN",
@@ -130,9 +131,15 @@
     );
   }
 
+  function getAllRooms(appState) {
+    return (appState.rooms || []).slice().sort((a, b) =>
+      String(a.number).localeCompare(String(b.number), "vi")
+    );
+  }
+
   function getFirstTenantName(room) {
     if (!room || !Array.isArray(room.tenants) || room.tenants.length === 0) return "";
-    const owner = room.tenants.find((t) => t.isOwner);
+    const owner = room.tenants.find((t) => t && t.isOwner);
     return owner?.fullName || room.tenants[0]?.fullName || "";
   }
 
@@ -286,6 +293,7 @@
 
   function calcRentLine(room, fromDate, toDate) {
     const priceMonth = Number(room.price || 0);
+
     if (!priceMonth) {
       return {
         name: "Tiền phòng",
@@ -999,25 +1007,29 @@
   }
 
   function buildAcceptanceSheetHtml({ appState, fromDate, toDate }) {
-    const rooms = getOccupiedRooms(appState);
+    const rooms = getAllRooms(appState);
 
     const rows = rooms
       .map((room, idx) => {
-        const tenantName = getFirstTenantName(room);
+        const occupied = isRoomOccupied(room);
+        const tenantName = occupied ? getFirstTenantName(room) : "";
 
         const elec = getMeterLineData(appState, "electricity", room.number, ymOf(toDate), toDate);
         const water = getMeterLineData(appState, "water", room.number, ymOf(toDate), toDate);
 
+        const rowClass = occupied ? "" : "room-empty";
+        const roomNote = occupied ? "" : "PHÒNG TRỐNG";
+
         return `
-          <tr>
+          <tr class="${rowClass}">
             <td>${idx + 1}</td>
             <td><b>${escapeHtml(room.number)}</b></td>
             <td>${escapeHtml(tenantName)}</td>
-            <td class="num">${elec.prev}</td>
+            <td class="num">${occupied ? elec.prev : ""}</td>
             <td></td>
-            <td class="num">${water.prev}</td>
+            <td class="num">${occupied ? water.prev : ""}</td>
             <td></td>
-            <td></td>
+            <td>${escapeHtml(roomNote)}</td>
           </tr>
         `;
       })
@@ -1080,6 +1092,12 @@
       font-weight: 700;
     }
     td.num { text-align: right; }
+
+    .room-empty td {
+      background: #eeeeee !important;
+      color: #6b7280;
+    }
+
     .note {
       margin-top: 8px;
       font-size: 12px;
@@ -1133,7 +1151,7 @@
     </table>
 
     <div class="note">
-      Dùng để mang đi nghiệm thu từng phòng và ghi tay số công tơ mới tại thời điểm kiểm tra.
+      Dòng nền xám là phòng đang trống. Dùng để mang đi nghiệm thu từng phòng và ghi tay số công tơ mới tại thời điểm kiểm tra.
     </div>
 
     <div class="sign">
@@ -1151,7 +1169,7 @@
   }
 
   function buildSummarySheetHtml({ appState, fromDate, toDate }) {
-    const rooms = getOccupiedRooms(appState);
+    const rooms = getAllRooms(appState);
 
     const costColumns = [];
     const seen = new Set();
@@ -1185,63 +1203,77 @@
 
     const rows = rooms
       .map((room, idx) => {
-        const tenantName = getFirstTenantName(room);
-        const draft = buildInvoiceDraft(
-          room,
-          appState,
-          fromDate,
-          toDate,
-          tenantName,
-          `Hóa đơn phòng ${room.number} từ ${fromDate} đến ${toDate}`
-        );
+        const occupied = isRoomOccupied(room);
+        const tenantName = occupied ? getFirstTenantName(room) : "";
+        const rowClass = occupied ? "" : "room-empty";
 
-        const elecLine =
-          draft.lines.find((x) => x.type === "electricity") || {
-            oldReading: 0,
-            newReading: 0,
-            used: 0,
-            total: 0,
-          };
-        const waterLine =
-          draft.lines.find((x) => x.type === "water") || {
-            oldReading: 0,
-            newReading: 0,
-            used: 0,
-            total: 0,
-          };
+        let elecLine = { oldReading: "", newReading: "", used: "", total: "" };
+        let waterLine = { oldReading: "", newReading: "", used: "", total: "" };
+        let extraCells = costColumns.map(() => `<td class="num"></td>`).join("");
+        let total = "";
+        let note = occupied ? "" : "PHÒNG TRỐNG";
 
-        const otherMap = {};
-        draft.lines.forEach((line) => {
-          if (line.type === "electricity" || line.type === "water") return;
-          if (normalizeText(line.name) === normalizeText("Tiền phòng")) return;
-          otherMap[line.name] = Number(line.total || line.amount || 0);
-        });
+        if (occupied) {
+          const draft = buildInvoiceDraft(
+            room,
+            appState,
+            fromDate,
+            toDate,
+            tenantName,
+            `Hóa đơn phòng ${room.number} từ ${fromDate} đến ${toDate}`
+          );
 
-        const extraCells = costColumns
-          .map((name) => `<td class="num">${fmtMoney(otherMap[name] || 0)}</td>`)
-          .join("");
+          elecLine =
+            draft.lines.find((x) => x.type === "electricity") || {
+              oldReading: 0,
+              newReading: 0,
+              used: 0,
+              total: 0,
+            };
 
-        const total = draft.lines.reduce((s, l) => s + Number(l.total || l.amount || 0), 0);
+          waterLine =
+            draft.lines.find((x) => x.type === "water") || {
+              oldReading: 0,
+              newReading: 0,
+              used: 0,
+              total: 0,
+            };
+
+          const otherMap = {};
+          draft.lines.forEach((line) => {
+            if (line.type === "electricity" || line.type === "water") return;
+            if (normalizeText(line.name) === normalizeText("Tiền phòng")) return;
+            otherMap[line.name] = Number(line.total || line.amount || 0);
+          });
+
+          extraCells = costColumns
+            .map((name) => `<td class="num">${fmtMoney(otherMap[name] || 0)}</td>`)
+            .join("");
+
+          total = fmtMoney(
+            draft.lines.reduce((s, l) => s + Number(l.total || l.amount || 0), 0)
+          );
+        }
 
         return `
-          <tr>
+          <tr class="${rowClass}">
             <td>${idx + 1}</td>
             <td><b>${escapeHtml(room.number)}</b></td>
             <td>${escapeHtml(tenantName)}</td>
 
-            <td class="num">${elecLine.oldReading || 0}</td>
-            <td class="num">${elecLine.newReading || 0}</td>
-            <td class="num">${elecLine.used || 0}</td>
-            <td class="num">${fmtMoney(elecLine.total || 0)}</td>
+            <td class="num">${elecLine.oldReading ?? ""}</td>
+            <td class="num">${elecLine.newReading ?? ""}</td>
+            <td class="num">${elecLine.used ?? ""}</td>
+            <td class="num">${elecLine.total !== "" ? fmtMoney(elecLine.total || 0) : ""}</td>
 
-            <td class="num">${waterLine.oldReading || 0}</td>
-            <td class="num">${waterLine.newReading || 0}</td>
-            <td class="num">${waterLine.used || 0}</td>
-            <td class="num">${fmtMoney(waterLine.total || 0)}</td>
+            <td class="num">${waterLine.oldReading ?? ""}</td>
+            <td class="num">${waterLine.newReading ?? ""}</td>
+            <td class="num">${waterLine.used ?? ""}</td>
+            <td class="num">${waterLine.total !== "" ? fmtMoney(waterLine.total || 0) : ""}</td>
 
             ${extraCells}
-            <td class="num"><b>${fmtMoney(total)}</b></td>
-            <td></td>
+            <td class="num"><b>${total}</b></td>
+            <td>${escapeHtml(note)}</td>
           </tr>
         `;
       })
@@ -1312,6 +1344,12 @@
     .small {
       font-size: 10px;
     }
+
+    .room-empty td {
+      background: #eeeeee !important;
+      color: #6b7280;
+    }
+
     @media print {
       .toolbar { display: none; }
       body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
@@ -1752,9 +1790,9 @@
   function openAcceptanceSheetForAllOccupiedRooms(appState) {
     ensureState(appState);
 
-    const rooms = getOccupiedRooms(appState);
+    const rooms = getAllRooms(appState);
     if (!rooms.length) {
-      alert("Không có phòng đang thuê.");
+      alert("Không có phòng nào.");
       return;
     }
 
@@ -1823,9 +1861,9 @@
   function openSummarySheetForAllOccupiedRooms(appState) {
     ensureState(appState);
 
-    const rooms = getOccupiedRooms(appState);
+    const rooms = getAllRooms(appState);
     if (!rooms.length) {
-      alert("Không có phòng đang thuê.");
+      alert("Không có phòng nào.");
       return;
     }
 
