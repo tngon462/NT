@@ -456,50 +456,50 @@
   }
 
   function buildOtherCostColumns({ rooms, appState, draftMap }) {
-    const cols = [];
-    const seen = new Set();
+  const cols = [];
+  const seen = new Set();
 
-    function shouldSkipCostName(name) {
-      const key = normalizeText(name);
-      return (
-        !key ||
-        key.includes("dien") ||
-        key.includes("điện") ||
-        key.includes("nuoc") ||
-        key.includes("nước") ||
-        key === normalizeText("Tiền phòng")
-      );
-    }
-
-    function addCostColumn(name) {
-      const clean = String(name || "").trim();
-      if (!clean || shouldSkipCostName(clean)) return;
-
-      const key = normalizeText(clean);
-      if (!seen.has(key)) {
-        seen.add(key);
-        cols.push(clean);
-      }
-    }
-
-    (appState.costs || []).forEach((c) => addCostColumn(c?.name));
-
-    rooms.forEach((room) => {
-      const items = Array.isArray(room.costItems) ? room.costItems : [];
-      items.forEach((ci) => addCostColumn(ci?.name));
-    });
-
-    rooms.forEach((room) => {
-      const draft = draftMap.get(String(room.number));
-      if (!draft || !Array.isArray(draft.lines)) return;
-
-      draft.lines.forEach((line) => {
-        addCostColumn(line?.name || line?.label);
-      });
-    });
-
-    return cols.sort((a, b) => String(a).localeCompare(String(b), "vi"));
+  function shouldSkipCostName(name) {
+    const key = normalizeText(name);
+    return (
+      !key ||
+      key.includes("dien") ||
+      key.includes("điện") ||
+      key.includes("nuoc") ||
+      key.includes("nước") ||
+      key === normalizeText("Tiền phòng")
+    );
   }
+
+  function addCostColumn(name) {
+    const clean = String(name || "").trim();
+    if (!clean || shouldSkipCostName(clean)) return;
+
+    const key = normalizeText(clean);
+    if (!seen.has(key)) {
+      seen.add(key);
+      cols.push(clean);
+    }
+  }
+
+  (appState.costs || []).forEach((c) => addCostColumn(c?.name));
+
+  rooms.forEach((room) => {
+    const items = Array.isArray(room.costItems) ? room.costItems : [];
+    items.forEach((ci) => addCostColumn(ci?.name));
+  });
+
+  rooms.forEach((room) => {
+    const draft = draftMap.get(String(room.number));
+    if (!draft || !Array.isArray(draft.lines)) return;
+
+    draft.lines.forEach((line) => {
+      addCostColumn(line?.name || line?.label);
+    });
+  });
+
+  return cols.sort((a, b) => String(a).localeCompare(String(b), "vi"));
+}
 
   function buildPrintA5Html({
     title,
@@ -1366,222 +1366,313 @@
   }
 
   function buildSummarySheetHtml({ appState, fromDate, toDate }) {
-    const printFont = getPrintFontStack();
-    const rooms = getAllRooms(appState);
+  const printFont = getPrintFontStack();
+  const rooms = getAllRooms(appState);
 
-    const draftMap = new Map();
+  const draftMap = new Map();
 
-    rooms.forEach((room) => {
-      if (!isRoomOccupied(room)) return;
+  rooms.forEach((room) => {
+    if (!isRoomOccupied(room)) return;
 
-      const tenantName = getFirstTenantName(room);
-      const draft = buildInvoiceDraft(
-        room,
-        appState,
-        fromDate,
-        toDate,
-        tenantName,
-        `Hóa đơn phòng ${room.number} từ ${fromDate} đến ${toDate}`
-      );
-
-      draftMap.set(String(room.number), draft);
-    });
-
-    const costColumns = buildOtherCostColumns({
-      rooms,
+    const tenantName = getFirstTenantName(room);
+    const draft = buildInvoiceDraft(
+      room,
       appState,
-      draftMap,
-    });
+      fromDate,
+      toDate,
+      tenantName,
+      `Hóa đơn phòng ${room.number} từ ${fromDate} đến ${toDate}`
+    );
 
-    const headerExtra = `
-      <th rowspan="2" style="min-width:100px;">Tiền phòng</th>
-      ${costColumns
-        .map((name) => `<th rowspan="2" style="min-width:100px;">${escapeHtml(name)}</th>`)
-        .join("")}
-    `;
+    draftMap.set(String(room.number), draft);
+  });
 
-    const totals = {
-      elecOld: 0,
-      elecNew: 0,
-      elecUsed: 0,
-      elecMoney: 0,
-      waterOld: 0,
-      waterNew: 0,
-      waterUsed: 0,
-      waterMoney: 0,
-      roomMoney: 0,
-      extras: Object.fromEntries(costColumns.map((c) => [c, 0])),
-      grand: 0,
+  const rawCostColumns = buildOtherCostColumns({
+    rooms,
+    appState,
+    draftMap,
+  });
+
+  const roomRows = [];
+  const totals = {
+    elecOld: 0,
+    elecNew: 0,
+    elecUsed: 0,
+    elecMoney: 0,
+
+    waterOld: 0,
+    waterNew: 0,
+    waterUsed: 0,
+    waterMoney: 0,
+
+    roomMoney: 0,
+    extras: Object.fromEntries(rawCostColumns.map((c) => [c, 0])),
+    grand: 0,
+  };
+
+  rooms.forEach((room, idx) => {
+    const occupied = isRoomOccupied(room);
+    const tenantName = occupied ? getFirstTenantName(room) : "";
+    const rowClass = occupied ? "" : "room-empty";
+
+    const elecMeter = getMeterLineData(
+      appState,
+      "electricity",
+      room.number,
+      ymOf(toDate),
+      toDate
+    );
+
+    const waterMeter = getMeterLineData(
+      appState,
+      "water",
+      room.number,
+      ymOf(toDate),
+      toDate
+    );
+
+    let elecLine = {
+      oldReading: elecMeter.prev,
+      newReading: occupied ? elecMeter.curr : "",
+      used: occupied ? elecMeter.used : "",
+      total: occupied ? 0 : "",
     };
 
-    const rows = rooms
-      .map((room, idx) => {
-        const occupied = isRoomOccupied(room);
-        const tenantName = occupied ? getFirstTenantName(room) : "";
-        const rowClass = occupied ? "" : "room-empty";
+    let waterLine = {
+      oldReading: waterMeter.prev,
+      newReading: occupied ? waterMeter.curr : "",
+      used: occupied ? waterMeter.used : "",
+      total: occupied ? 0 : "",
+    };
 
-        const elecMeter = getMeterLineData(
-          appState,
-          "electricity",
-          room.number,
-          ymOf(toDate),
-          toDate
-        );
+    let roomFeeValue = 0;
+    let totalValue = 0;
+    let note = occupied ? "" : "PHÒNG TRỐNG";
 
-        const waterMeter = getMeterLineData(
-          appState,
-          "water",
-          room.number,
-          ymOf(toDate),
-          toDate
-        );
+    const otherMap = Object.fromEntries(rawCostColumns.map((c) => [c, 0]));
 
-        let elecLine = {
+    if (occupied) {
+      const draft = draftMap.get(String(room.number));
+
+      elecLine =
+        draft?.lines?.find((x) => x.type === "electricity") || {
           oldReading: elecMeter.prev,
-          newReading: occupied ? elecMeter.curr : "",
-          used: occupied ? elecMeter.used : "",
-          total: occupied ? 0 : "",
+          newReading: elecMeter.curr,
+          used: elecMeter.used,
+          total: 0,
         };
 
-        let waterLine = {
+      waterLine =
+        draft?.lines?.find((x) => x.type === "water") || {
           oldReading: waterMeter.prev,
-          newReading: occupied ? waterMeter.curr : "",
-          used: occupied ? waterMeter.used : "",
-          total: occupied ? 0 : "",
+          newReading: waterMeter.curr,
+          used: waterMeter.used,
+          total: 0,
         };
 
-        let roomFee = "";
-        let extraCells = costColumns.map(() => `<td class="num"></td>`).join("");
-        let total = "";
-        let note = occupied ? "" : "PHÒNG TRỐNG";
+      const roomLine =
+        draft?.lines?.find(
+          (line) => normalizeText(line.name) === normalizeText("Tiền phòng")
+        ) || null;
 
-        if (occupied) {
-          const draft = draftMap.get(String(room.number));
+      (draft?.lines || []).forEach((line) => {
+        const key = normalizeText(line?.name || line?.label);
+        if (!key) return;
+        if (line.type === "electricity" || line.type === "water") return;
+        if (key === normalizeText("Tiền phòng")) return;
 
-          elecLine =
-            draft?.lines?.find((x) => x.type === "electricity") || {
-              oldReading: elecMeter.prev,
-              newReading: elecMeter.curr,
-              used: elecMeter.used,
-              total: 0,
-            };
+        const matchedColumn =
+          rawCostColumns.find((col) => normalizeText(col) === key) ||
+          line.name ||
+          line.label;
 
-          waterLine =
-            draft?.lines?.find((x) => x.type === "water") || {
-              oldReading: waterMeter.prev,
-              newReading: waterMeter.curr,
-              used: waterMeter.used,
-              total: 0,
-            };
+        otherMap[matchedColumn] =
+          Number(otherMap[matchedColumn] || 0) +
+          Number(line.total || line.amount || 0);
+      });
 
-          const roomLine =
-            draft?.lines?.find(
-              (line) => normalizeText(line.name) === normalizeText("Tiền phòng")
-            ) || null;
+      roomFeeValue = Number(roomLine?.total || roomLine?.amount || 0);
+      totalValue = Number(
+        (draft?.lines || []).reduce((s, l) => s + Number(l.total || l.amount || 0), 0)
+      );
 
-          const otherMap = {};
+      totals.elecOld += Number(elecLine.oldReading || 0);
+      totals.elecNew += Number(elecLine.newReading || 0);
+      totals.elecUsed += Number(elecLine.used || 0);
+      totals.elecMoney += Number(elecLine.total || 0);
 
-          (draft?.lines || []).forEach((line) => {
-            const key = normalizeText(line?.name || line?.label);
-            if (!key) return;
-            if (line.type === "electricity" || line.type === "water") return;
-            if (key === normalizeText("Tiền phòng")) return;
+      totals.waterOld += Number(waterLine.oldReading || 0);
+      totals.waterNew += Number(waterLine.newReading || 0);
+      totals.waterUsed += Number(waterLine.used || 0);
+      totals.waterMoney += Number(waterLine.total || 0);
 
-            const matchedColumn =
-              costColumns.find((col) => normalizeText(col) === key) ||
-              line.name ||
-              line.label;
+      totals.roomMoney += roomFeeValue;
 
-            otherMap[matchedColumn] =
-              Number(otherMap[matchedColumn] || 0) +
-              Number(line.total || line.amount || 0);
-          });
+      rawCostColumns.forEach((name) => {
+        totals.extras[name] += Number(otherMap[name] || 0);
+      });
 
-          roomFee = fmtMoney(roomLine?.total || roomLine?.amount || 0);
+      totals.grand += totalValue;
+    }
 
-          extraCells = costColumns
-            .map((name) => `<td class="num">${fmtMoney(otherMap[name] || 0)}</td>`)
-            .join("");
+    roomRows.push({
+      idx,
+      room,
+      tenantName,
+      rowClass,
+      note,
+      occupied,
+      elecLine,
+      waterLine,
+      roomFeeValue,
+      otherMap,
+      totalValue,
+    });
+  });
 
-          const grandRowTotal = Number(
-            (draft?.lines || []).reduce((s, l) => s + Number(l.total || l.amount || 0), 0)
-          );
+  const visibleExtraColumns = rawCostColumns.filter((name) => {
+    return Number(totals.extras[name] || 0) !== 0;
+  });
 
-          total = fmtMoney(grandRowTotal);
+  const showElectricity =
+    totals.elecOld !== 0 ||
+    totals.elecNew !== 0 ||
+    totals.elecUsed !== 0 ||
+    totals.elecMoney !== 0;
 
-          totals.elecOld += Number(elecLine.oldReading || 0);
-          totals.elecNew += Number(elecLine.newReading || 0);
-          totals.elecUsed += Number(elecLine.used || 0);
-          totals.elecMoney += Number(elecLine.total || 0);
+  const showWater =
+    totals.waterOld !== 0 ||
+    totals.waterNew !== 0 ||
+    totals.waterUsed !== 0 ||
+    totals.waterMoney !== 0;
 
-          totals.waterOld += Number(waterLine.oldReading || 0);
-          totals.waterNew += Number(waterLine.newReading || 0);
-          totals.waterUsed += Number(waterLine.used || 0);
-          totals.waterMoney += Number(waterLine.total || 0);
+  const showRoomFee = totals.roomMoney !== 0;
 
-          totals.roomMoney += Number(roomLine?.total || roomLine?.amount || 0);
+  const dynamicHeaderParts = [];
 
-          costColumns.forEach((name) => {
-            totals.extras[name] += Number(otherMap[name] || 0);
-          });
+  if (showElectricity) {
+    dynamicHeaderParts.push(`<th colspan="4">Điện</th>`);
+  }
 
-          totals.grand += grandRowTotal;
-        }
+  if (showWater) {
+    dynamicHeaderParts.push(`<th colspan="4">Nước</th>`);
+  }
 
-        return `
-          <tr class="${rowClass}">
-            <td>${idx + 1}</td>
-            <td><b>${escapeHtml(room.number)}</b></td>
-            <td>${escapeHtml(tenantName)}</td>
+  if (showRoomFee) {
+    dynamicHeaderParts.push(`<th rowspan="2" style="min-width:90px;">Tiền phòng</th>`);
+  }
 
-            <td class="num">${elecLine.oldReading ?? ""}</td>
-            <td class="num">${elecLine.newReading ?? ""}</td>
-            <td class="num">${elecLine.used ?? ""}</td>
-            <td class="num">${elecLine.total !== "" ? fmtMoney(elecLine.total || 0) : ""}</td>
+  visibleExtraColumns.forEach((name) => {
+    dynamicHeaderParts.push(
+      `<th rowspan="2" style="min-width:90px;">${escapeHtml(name)}</th>`
+    );
+  });
 
-            <td class="num">${waterLine.oldReading ?? ""}</td>
-            <td class="num">${waterLine.newReading ?? ""}</td>
-            <td class="num">${waterLine.used ?? ""}</td>
-            <td class="num">${waterLine.total !== "" ? fmtMoney(waterLine.total || 0) : ""}</td>
+  const subHeaderParts = [];
 
-            <td class="num">${roomFee}</td>
-            ${extraCells}
-            <td class="num"><b>${total}</b></td>
-            <td>${escapeHtml(note)}</td>
-          </tr>
-        `;
-      })
-      .join("");
+  if (showElectricity) {
+    subHeaderParts.push(`
+      <th class="small">Cũ</th>
+      <th class="small">Mới</th>
+      <th class="small">Dùng</th>
+      <th class="small">Thành tiền</th>
+    `);
+  }
 
-    const totalRow = `
-      <tr style="background:#f8fafc; font-weight:700;">
-        <td colspan="3" style="text-align:center;"><b>TỔNG</b></td>
+  if (showWater) {
+    subHeaderParts.push(`
+      <th class="small">Cũ</th>
+      <th class="small">Mới</th>
+      <th class="small">Dùng</th>
+      <th class="small">Thành tiền</th>
+    `);
+  }
 
-        <td class="num">${fmtMoney(totals.elecOld)}</td>
-        <td class="num">${fmtMoney(totals.elecNew)}</td>
-        <td class="num">${fmtMoney(totals.elecUsed)}</td>
-        <td class="num">${fmtMoney(totals.elecMoney)}</td>
+  const rows = roomRows
+    .map((row) => {
+      const parts = [];
 
-        <td class="num">${fmtMoney(totals.waterOld)}</td>
-        <td class="num">${fmtMoney(totals.waterNew)}</td>
-        <td class="num">${fmtMoney(totals.waterUsed)}</td>
-        <td class="num">${fmtMoney(totals.waterMoney)}</td>
+      parts.push(`<td>${row.idx + 1}</td>`);
+      parts.push(`<td><b>${escapeHtml(row.room.number)}</b></td>`);
+      parts.push(`<td>${escapeHtml(row.tenantName)}</td>`);
 
-        <td class="num">${fmtMoney(totals.roomMoney)}</td>
-        ${costColumns
-          .map((name) => `<td class="num">${fmtMoney(totals.extras[name] || 0)}</td>`)
-          .join("")}
-        <td class="num"><b>${fmtMoney(totals.grand)}</b></td>
-        <td></td>
-      </tr>
-    `;
+      if (showElectricity) {
+        parts.push(`<td class="num">${row.elecLine.oldReading ?? ""}</td>`);
+        parts.push(`<td class="num">${row.elecLine.newReading ?? ""}</td>`);
+        parts.push(`<td class="num">${row.elecLine.used ?? ""}</td>`);
+        parts.push(
+          `<td class="num">${
+            row.elecLine.total !== "" ? fmtMoney(row.elecLine.total || 0) : ""
+          }</td>`
+        );
+      }
 
-    const title = `PHIẾU TỔNG HỢP NHÀ TRỌ THIỆP MẾN ${getMonthTitleText(
-      fromDate,
-      toDate
-    ).toUpperCase()}`;
+      if (showWater) {
+        parts.push(`<td class="num">${row.waterLine.oldReading ?? ""}</td>`);
+        parts.push(`<td class="num">${row.waterLine.newReading ?? ""}</td>`);
+        parts.push(`<td class="num">${row.waterLine.used ?? ""}</td>`);
+        parts.push(
+          `<td class="num">${
+            row.waterLine.total !== "" ? fmtMoney(row.waterLine.total || 0) : ""
+          }</td>`
+        );
+      }
 
-    return `
+      if (showRoomFee) {
+        parts.push(`<td class="num">${fmtMoney(row.roomFeeValue || 0)}</td>`);
+      }
+
+      visibleExtraColumns.forEach((name) => {
+        parts.push(`<td class="num">${fmtMoney(row.otherMap[name] || 0)}</td>`);
+      });
+
+      parts.push(`<td class="num"><b>${fmtMoney(row.totalValue || 0)}</b></td>`);
+      parts.push(`<td>${escapeHtml(row.note)}</td>`);
+
+      return `<tr class="${row.rowClass}">${parts.join("")}</tr>`;
+    })
+    .join("");
+
+  const totalParts = [];
+  totalParts.push(`<td colspan="3" style="text-align:center;"><b>TỔNG</b></td>`);
+
+  if (showElectricity) {
+    totalParts.push(`<td class="num">${fmtMoney(totals.elecOld)}</td>`);
+    totalParts.push(`<td class="num">${fmtMoney(totals.elecNew)}</td>`);
+    totalParts.push(`<td class="num">${fmtMoney(totals.elecUsed)}</td>`);
+    totalParts.push(`<td class="num">${fmtMoney(totals.elecMoney)}</td>`);
+  }
+
+  if (showWater) {
+    totalParts.push(`<td class="num">${fmtMoney(totals.waterOld)}</td>`);
+    totalParts.push(`<td class="num">${fmtMoney(totals.waterNew)}</td>`);
+    totalParts.push(`<td class="num">${fmtMoney(totals.waterUsed)}</td>`);
+    totalParts.push(`<td class="num">${fmtMoney(totals.waterMoney)}</td>`);
+  }
+
+  if (showRoomFee) {
+    totalParts.push(`<td class="num">${fmtMoney(totals.roomMoney)}</td>`);
+  }
+
+  visibleExtraColumns.forEach((name) => {
+    totalParts.push(`<td class="num">${fmtMoney(totals.extras[name] || 0)}</td>`);
+  });
+
+  totalParts.push(`<td class="num"><b>${fmtMoney(totals.grand)}</b></td>`);
+  totalParts.push(`<td></td>`);
+
+  const totalRow = `
+    <tr style="background:#f8fafc; font-weight:700;">
+      ${totalParts.join("")}
+    </tr>
+  `;
+
+  const title = `PHIẾU TỔNG HỢP NHÀ TRỌ THIỆP MẾN ${getMonthTitleText(
+    fromDate,
+    toDate
+  ).toUpperCase()}`;
+
+  return `
 <!doctype html>
 <html>
 <head>
@@ -1590,6 +1681,7 @@
   <style>
     @page { size: A4 landscape; margin: 8mm; }
     * { box-sizing: border-box; }
+
     body {
       margin: 0;
       font-family: ${printFont};
@@ -1598,6 +1690,7 @@
       -webkit-font-smoothing: antialiased;
       -moz-osx-font-smoothing: grayscale;
     }
+
     .toolbar {
       padding: 8px;
       border-bottom: 1px solid #d1d5db;
@@ -1605,6 +1698,7 @@
       gap: 8px;
       background: #fff;
     }
+
     .toolbar button {
       padding: 6px 10px;
       font-size: 12px;
@@ -1614,47 +1708,56 @@
       border-radius: 6px;
       font-family: ${printFont};
     }
+
     .page { padding-top: 8px; }
+
     .title {
       text-align: center;
-      font-size: 22px;
+      font-size: 20px;
       font-weight: 800;
-      margin-bottom: 8px;
+      margin-bottom: 6px;
       text-transform: uppercase;
       letter-spacing: 0.2px;
       font-family: ${printFont};
     }
+
     .subline {
-      font-size: 13px;
+      font-size: 12px;
       margin-bottom: 8px;
       font-family: ${printFont};
     }
+
     .table-wrap {
       overflow: visible;
     }
+
     table {
       width: 100%;
       border-collapse: collapse;
       table-layout: auto;
-      font-size: 11px;
+      font-size: 10.5px;
       font-family: ${printFont};
     }
+
     th, td {
       border: 1px solid #111827;
-      padding: 4px 5px;
+      padding: 3px 4px;
       vertical-align: middle;
       white-space: nowrap;
     }
+
     th {
       background: #f3f4f6;
       text-align: center;
       font-weight: 700;
     }
+
     td.num {
       text-align: right;
     }
+
     .small {
-      font-size: 10px;
+      font-size: 9px;
     }
 
     .room-empty td {
@@ -1664,7 +1767,10 @@
 
     @media print {
       .toolbar { display: none; }
-      body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      body {
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }
     }
   </style>
 </head>
@@ -1686,24 +1792,13 @@
             <th rowspan="2">Phòng</th>
             <th rowspan="2">Tên chủ phòng</th>
 
-            <th colspan="4">Điện</th>
-            <th colspan="4">Nước</th>
-
-            ${headerExtra}
+            ${dynamicHeaderParts.join("")}
 
             <th rowspan="2">Tổng số tiền</th>
             <th rowspan="2">Ghi chú</th>
           </tr>
           <tr>
-            <th class="small">Cũ</th>
-            <th class="small">Mới</th>
-            <th class="small">Dùng</th>
-            <th class="small">Thành tiền</th>
-
-            <th class="small">Cũ</th>
-            <th class="small">Mới</th>
-            <th class="small">Dùng</th>
-            <th class="small">Thành tiền</th>
+            ${subHeaderParts.join("")}
           </tr>
         </thead>
         <tbody>
@@ -1715,8 +1810,8 @@
   </div>
 </body>
 </html>
-    `.trim();
-  }
+  `.trim();
+}
 
   function openInvoiceForRoom(roomNumber, appState) {
     ensureState(appState);
