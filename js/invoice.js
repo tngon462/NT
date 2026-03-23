@@ -1007,37 +1007,37 @@
   }
 
   function buildAcceptanceSheetHtml({ appState, fromDate, toDate }) {
-    const rooms = getAllRooms(appState);
+  const rooms = getAllRooms(appState);
 
-    const rows = rooms
-      .map((room, idx) => {
-        const occupied = isRoomOccupied(room);
-        const tenantName = occupied ? getFirstTenantName(room) : "";
+  const rows = rooms
+    .map((room, idx) => {
+      const occupied = isRoomOccupied(room);
+      const tenantName = occupied ? getFirstTenantName(room) : "";
 
-        const elec = getMeterLineData(appState, "electricity", room.number, ymOf(toDate), toDate);
-        const water = getMeterLineData(appState, "water", room.number, ymOf(toDate), toDate);
+      const elec = getMeterLineData(appState, "electricity", room.number, ymOf(toDate), toDate);
+      const water = getMeterLineData(appState, "water", room.number, ymOf(toDate), toDate);
 
-        const rowClass = occupied ? "" : "room-empty";
-        const roomNote = occupied ? "" : "PHÒNG TRỐNG";
+      const rowClass = occupied ? "" : "room-empty";
+      const roomNote = occupied ? "" : "PHÒNG TRỐNG";
 
-        return `
+      return `
           <tr class="${rowClass}">
             <td>${idx + 1}</td>
             <td><b>${escapeHtml(room.number)}</b></td>
             <td>${escapeHtml(tenantName)}</td>
-            <td class="num">${occupied ? elec.prev : ""}</td>
+            <td class="num">${elec.prev}</td>
             <td></td>
-            <td class="num">${occupied ? water.prev : ""}</td>
+            <td class="num">${water.prev}</td>
             <td></td>
             <td>${escapeHtml(roomNote)}</td>
           </tr>
         `;
-      })
-      .join("");
+    })
+    .join("");
 
-    const title = `PHIẾU CHỐT SỐ ĐIỆN NƯỚC NHÀ TRỌ THIỆP MẾN ${getMonthTitleText(fromDate, toDate).toUpperCase()}`;
+  const title = `PHIẾU CHỐT SỐ ĐIỆN NƯỚC NHÀ TRỌ THIỆP MẾN ${getMonthTitleText(fromDate, toDate).toUpperCase()}`;
 
-    return `
+  return `
 <!doctype html>
 <html>
 <head>
@@ -1151,7 +1151,7 @@
     </table>
 
     <div class="note">
-      Dòng nền xám là phòng đang trống. Dùng để mang đi nghiệm thu từng phòng và ghi tay số công tơ mới tại thời điểm kiểm tra.
+      Dòng nền xám là phòng đang trống. Phòng trống vẫn giữ số điện/nước cũ để tiện theo dõi khi nghiệm thu.
     </div>
 
     <div class="sign">
@@ -1165,97 +1165,112 @@
   </div>
 </body>
 </html>
-    `.trim();
-  }
+  `.trim();
+}
 
   function buildSummarySheetHtml({ appState, fromDate, toDate }) {
-    const rooms = getAllRooms(appState);
+  const rooms = getAllRooms(appState);
 
-    const costColumns = [];
-    const seen = new Set();
+  const costColumns = [];
+  const seen = new Set();
 
-    rooms.forEach((room) => {
-      const items = Array.isArray(room.costItems) ? room.costItems : [];
-      items.forEach((ci) => {
-        const name = String(ci?.name || "").trim();
-        if (!name) return;
+  rooms.forEach((room) => {
+    const items = Array.isArray(room.costItems) ? room.costItems : [];
+    items.forEach((ci) => {
+      const name = String(ci?.name || "").trim();
+      if (!name) return;
 
-        const n = normalizeText(name);
-        if (
-          n.includes("dien") ||
-          n.includes("điện") ||
-          n.includes("nuoc") ||
-          n.includes("nước")
-        ) {
-          return;
-        }
+      const n = normalizeText(name);
+      if (
+        n.includes("dien") ||
+        n.includes("điện") ||
+        n.includes("nuoc") ||
+        n.includes("nước")
+      ) {
+        return;
+      }
 
-        if (!seen.has(name)) {
-          seen.add(name);
-          costColumns.push(name);
-        }
-      });
+      if (!seen.has(name)) {
+        seen.add(name);
+        costColumns.push(name);
+      }
     });
+  });
 
-    const headerExtra = costColumns
-      .map((name) => `<th style="min-width:90px;">${escapeHtml(name)}</th>`)
-      .join("");
+  const headerExtra = costColumns
+    .map((name) => `<th style="min-width:90px;">${escapeHtml(name)}</th>`)
+    .join("");
 
-    const rows = rooms
-      .map((room, idx) => {
-        const occupied = isRoomOccupied(room);
-        const tenantName = occupied ? getFirstTenantName(room) : "";
-        const rowClass = occupied ? "" : "room-empty";
+  const rows = rooms
+    .map((room, idx) => {
+      const occupied = isRoomOccupied(room);
+      const tenantName = occupied ? getFirstTenantName(room) : "";
+      const rowClass = occupied ? "" : "room-empty";
 
-        let elecLine = { oldReading: "", newReading: "", used: "", total: "" };
-        let waterLine = { oldReading: "", newReading: "", used: "", total: "" };
-        let extraCells = costColumns.map(() => `<td class="num"></td>`).join("");
-        let total = "";
-        let note = occupied ? "" : "PHÒNG TRỐNG";
+      const elecMeter = getMeterLineData(appState, "electricity", room.number, ymOf(toDate), toDate);
+      const waterMeter = getMeterLineData(appState, "water", room.number, ymOf(toDate), toDate);
 
-        if (occupied) {
-          const draft = buildInvoiceDraft(
-            room,
-            appState,
-            fromDate,
-            toDate,
-            tenantName,
-            `Hóa đơn phòng ${room.number} từ ${fromDate} đến ${toDate}`
-          );
+      let elecLine = {
+        oldReading: elecMeter.prev,
+        newReading: occupied ? elecMeter.curr : "",
+        used: occupied ? elecMeter.used : "",
+        total: occupied ? 0 : "",
+      };
 
-          elecLine =
-            draft.lines.find((x) => x.type === "electricity") || {
-              oldReading: 0,
-              newReading: 0,
-              used: 0,
-              total: 0,
-            };
+      let waterLine = {
+        oldReading: waterMeter.prev,
+        newReading: occupied ? waterMeter.curr : "",
+        used: occupied ? waterMeter.used : "",
+        total: occupied ? 0 : "",
+      };
 
-          waterLine =
-            draft.lines.find((x) => x.type === "water") || {
-              oldReading: 0,
-              newReading: 0,
-              used: 0,
-              total: 0,
-            };
+      let extraCells = costColumns.map(() => `<td class="num"></td>`).join("");
+      let total = "";
+      let note = occupied ? "" : "PHÒNG TRỐNG";
 
-          const otherMap = {};
-          draft.lines.forEach((line) => {
-            if (line.type === "electricity" || line.type === "water") return;
-            if (normalizeText(line.name) === normalizeText("Tiền phòng")) return;
-            otherMap[line.name] = Number(line.total || line.amount || 0);
-          });
+      if (occupied) {
+        const draft = buildInvoiceDraft(
+          room,
+          appState,
+          fromDate,
+          toDate,
+          tenantName,
+          `Hóa đơn phòng ${room.number} từ ${fromDate} đến ${toDate}`
+        );
 
-          extraCells = costColumns
-            .map((name) => `<td class="num">${fmtMoney(otherMap[name] || 0)}</td>`)
-            .join("");
+        elecLine =
+          draft.lines.find((x) => x.type === "electricity") || {
+            oldReading: elecMeter.prev,
+            newReading: elecMeter.curr,
+            used: elecMeter.used,
+            total: 0,
+          };
 
-          total = fmtMoney(
-            draft.lines.reduce((s, l) => s + Number(l.total || l.amount || 0), 0)
-          );
-        }
+        waterLine =
+          draft.lines.find((x) => x.type === "water") || {
+            oldReading: waterMeter.prev,
+            newReading: waterMeter.curr,
+            used: waterMeter.used,
+            total: 0,
+          };
 
-        return `
+        const otherMap = {};
+        draft.lines.forEach((line) => {
+          if (line.type === "electricity" || line.type === "water") return;
+          if (normalizeText(line.name) === normalizeText("Tiền phòng")) return;
+          otherMap[line.name] = Number(line.total || line.amount || 0);
+        });
+
+        extraCells = costColumns
+          .map((name) => `<td class="num">${fmtMoney(otherMap[name] || 0)}</td>`)
+          .join("");
+
+        total = fmtMoney(
+          draft.lines.reduce((s, l) => s + Number(l.total || l.amount || 0), 0)
+        );
+      }
+
+      return `
           <tr class="${rowClass}">
             <td>${idx + 1}</td>
             <td><b>${escapeHtml(room.number)}</b></td>
@@ -1276,12 +1291,12 @@
             <td>${escapeHtml(note)}</td>
           </tr>
         `;
-      })
-      .join("");
+    })
+    .join("");
 
-    const title = `PHIẾU TỔNG HỢP NHÀ TRỌ THIỆP MẾN ${getMonthTitleText(fromDate, toDate).toUpperCase()}`;
+  const title = `PHIẾU TỔNG HỢP NHÀ TRỌ THIỆP MẾN ${getMonthTitleText(fromDate, toDate).toUpperCase()}`;
 
-    return `
+  return `
 <!doctype html>
 <html>
 <head>
@@ -1404,8 +1419,8 @@
   </div>
 </body>
 </html>
-    `.trim();
-  }
+  `.trim();
+}
 
   function openInvoiceForRoom(roomNumber, appState) {
     ensureState(appState);
