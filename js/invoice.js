@@ -125,7 +125,9 @@
   }
 
   function getOccupiedRooms(appState) {
-    return (appState.rooms || []).filter(isRoomOccupied);
+    return (appState.rooms || []).filter(isRoomOccupied).sort((a, b) =>
+      String(a.number).localeCompare(String(b.number), "vi")
+    );
   }
 
   function getFirstTenantName(room) {
@@ -202,8 +204,9 @@
   }
 
   function latestReadingByPeriod(appState, type, roomNumber, ym) {
-    const records = getRoomMeterRecords(appState, type, roomNumber)
-      .filter((h) => String(h.period) === String(ym));
+    const records = getRoomMeterRecords(appState, type, roomNumber).filter(
+      (h) => String(h.period) === String(ym)
+    );
 
     if (!records.length) return null;
     const sorted = sortMeterRecordsAsc(records);
@@ -211,8 +214,9 @@
   }
 
   function latestReadingUpToDate(appState, type, roomNumber, toDate) {
-    const records = getRoomMeterRecords(appState, type, roomNumber)
-      .filter((h) => h.date && h.date <= toDate);
+    const records = getRoomMeterRecords(appState, type, roomNumber).filter(
+      (h) => h.date && h.date <= toDate
+    );
 
     if (!records.length) return null;
     const sorted = sortMeterRecordsAsc(records);
@@ -220,12 +224,11 @@
   }
 
   function prevReadingBeforeMonth(appState, type, roomNumber, ym) {
-    const records = getRoomMeterRecords(appState, type, roomNumber)
-      .filter((h) => {
-        if (h.period) return h.period < ym;
-        if (h.date) return ymOf(h.date) < ym;
-        return false;
-      });
+    const records = getRoomMeterRecords(appState, type, roomNumber).filter((h) => {
+      if (h.period) return h.period < ym;
+      if (h.date) return ymOf(h.date) < ym;
+      return false;
+    });
 
     if (!records.length) return 0;
     const sorted = sortMeterRecordsAsc(records);
@@ -322,7 +325,7 @@
       qty: stayDays,
       unit: "ngày",
       total,
-      note: `Tính theo ngày: ${stayDays}/${daysInMonth} ngày (làm tròn xuống 1,000đ)`,
+      note: `Tính ${stayDays}/${daysInMonth} ngày`,
     };
   }
 
@@ -384,14 +387,12 @@
       const displayName = type === "electricity" ? "Tiền điện" : "Tiền nước";
       const total = Number(cfg.price || 0) * Number(meter.used || 0);
 
-      const subNoteLines = [
-        `Số cũ: ${meter.prev}`,
-        `Số mới: ${meter.curr}`,
-        `Sử dụng: ${meter.used} ${cfg.unit || (type === "electricity" ? "kWh" : "m³")}`,
-      ];
-
-      if (meter.date) subNoteLines.push(`Ngày chốt: ${meter.date}`);
-      if (meter.period) subNoteLines.push(`Kỳ: ${meter.period}`);
+      const shortLine1 =
+        `Cũ ${meter.prev} | Mới ${meter.curr} | Dùng ${meter.used} ${cfg.unit || (type === "electricity" ? "kWh" : "m³")}`;
+      const shortLine2 =
+        meter.date || meter.period
+          ? `Chốt ${meter.date || ""}${meter.date && meter.period ? " | " : ""}${meter.period ? "Kỳ " + meter.period : ""}`.trim()
+          : "";
 
       lines.push({
         name: displayName,
@@ -403,7 +404,7 @@
         unit: cfg.unit || (type === "electricity" ? "kWh" : "m³"),
         total,
         amount: total,
-        note: subNoteLines.join("\n"),
+        note: shortLine2 ? `${shortLine1}\n${shortLine2}` : shortLine1,
         oldReading: meter.prev,
         newReading: meter.curr,
         used: meter.used,
@@ -435,9 +436,7 @@
 
     const rows = lines
       .map((l, i) => {
-        const noteHtml = l.note
-          ? `<div class="line-note">${escapeHtml(l.note)}</div>`
-          : "";
+        const noteHtml = l.note ? `<div class="line-note">${escapeHtml(l.note)}</div>` : "";
 
         return `
           <tr>
@@ -462,13 +461,13 @@
   <meta charset="utf-8" />
   <title>${escapeHtml(title || BRAND.title)}</title>
   <style>
-    @page { size: A5 portrait; margin: 8mm; }
+    @page { size: A5 landscape; margin: 7mm; }
     * { box-sizing: border-box; }
     body {
       margin: 0;
       font-family: Arial, Helvetica, sans-serif;
       color: #111827;
-      font-size: 12px;
+      font-size: 11px;
       background: #fff;
     }
     .toolbar {
@@ -487,28 +486,28 @@
       background: #f8fafc;
       border-radius: 6px;
     }
-    .page { padding: 4px 2px 0; }
+    .page { padding: 3px 2px 0; }
     .doc-header {
       text-align: center;
       border: 1.5px solid #111827;
-      padding: 10px 10px 8px;
-      margin-bottom: 8px;
+      padding: 7px 8px 6px;
+      margin-bottom: 6px;
     }
     .doc-title {
-      font-size: 18px;
+      font-size: 15px;
       font-weight: 800;
-      letter-spacing: 0.5px;
+      letter-spacing: 0.3px;
       text-transform: uppercase;
-      margin-bottom: 4px;
+      margin-bottom: 3px;
     }
     .doc-subtitle {
-      font-size: 11px;
+      font-size: 10px;
       color: #374151;
-      line-height: 1.45;
+      line-height: 1.35;
     }
     .invoice-code {
-      margin-top: 4px;
-      font-size: 11px;
+      margin-top: 3px;
+      font-size: 10px;
       color: #4b5563;
     }
     .meta-grid {
@@ -519,17 +518,24 @@
     }
     .meta-row {
       display: grid;
-      grid-template-columns: 118px 1fr;
+      grid-template-columns: 108px 1fr 108px 1fr;
       border-bottom: 1px solid #111827;
-      min-height: 28px;
+      min-height: 26px;
     }
     .meta-label {
-      padding: 6px 8px;
+      padding: 5px 7px;
       font-weight: 700;
       border-right: 1px solid #111827;
       background: #f9fafb;
     }
-    .meta-value { padding: 6px 8px; }
+    .meta-value {
+      padding: 5px 7px;
+      border-right: 1px solid #111827;
+    }
+    .meta-row .meta-value:last-child {
+      border-right: none;
+    }
+
     .invoice-table {
       width: 100%;
       border-collapse: collapse;
@@ -539,31 +545,32 @@
     .invoice-table th,
     .invoice-table td {
       border: 1px solid #111827;
-      padding: 6px 6px;
+      padding: 4px 5px;
       vertical-align: top;
     }
     .invoice-table th {
       text-align: center;
       font-weight: 700;
       background: #f3f4f6;
-    }
-    .col-stt { width: 34px; text-align: center; }
-    .col-name { width: auto; }
-    .col-unitprice { width: 78px; text-align: right; white-space: nowrap; }
-    .col-qty { width: 54px; text-align: right; white-space: nowrap; }
-    .col-unit { width: 48px; text-align: center; white-space: nowrap; }
-    .col-total { width: 92px; text-align: right; white-space: nowrap; font-weight: 700; }
-    .line-name { font-weight: 700; margin-bottom: 2px; }
-    .line-note {
       font-size: 10px;
-      line-height: 1.35;
+    }
+    .col-stt { width: 30px; text-align: center; }
+    .col-name { width: auto; }
+    .col-unitprice { width: 72px; text-align: right; white-space: nowrap; }
+    .col-qty { width: 50px; text-align: right; white-space: nowrap; }
+    .col-unit { width: 48px; text-align: center; white-space: nowrap; }
+    .col-total { width: 88px; text-align: right; white-space: nowrap; font-weight: 700; }
+    .line-name { font-weight: 700; margin-bottom: 1px; }
+    .line-note {
+      font-size: 9px;
+      line-height: 1.25;
       color: #6b7280;
       white-space: pre-line;
     }
     .summary-box {
       border: 1.5px solid #111827;
       border-top: none;
-      padding: 8px 10px;
+      padding: 6px 8px;
       margin-top: 0;
     }
     .summary-row {
@@ -571,30 +578,35 @@
       justify-content: space-between;
       align-items: center;
       gap: 12px;
-      font-size: 13px;
+      font-size: 12px;
       font-weight: 800;
     }
     .summary-value {
-      font-size: 16px;
+      font-size: 15px;
       font-weight: 800;
     }
+    .footer-wrap {
+      display: grid;
+      grid-template-columns: 1.2fr 1fr;
+      gap: 14px;
+      margin-top: 8px;
+      align-items: start;
+    }
     .footer-note {
-      margin-top: 10px;
-      font-size: 10px;
+      font-size: 9px;
       color: #4b5563;
-      line-height: 1.5;
+      line-height: 1.35;
     }
     .sign-row {
       display: grid;
       grid-template-columns: 1fr 1fr;
-      gap: 24px;
-      margin-top: 14px;
+      gap: 18px;
       text-align: center;
-      font-size: 11px;
+      font-size: 10px;
     }
     .sign-title {
       font-weight: 700;
-      margin-bottom: 48px;
+      margin-bottom: 28px;
     }
     @media print {
       .toolbar { display: none; }
@@ -626,18 +638,20 @@
       <div class="meta-row">
         <div class="meta-label">Phòng số</div>
         <div class="meta-value"><b>${escapeHtml(room.number)}</b></div>
-      </div>
-      <div class="meta-row">
         <div class="meta-label">Người thuê</div>
         <div class="meta-value">${escapeHtml(tenantName || "(chưa có)")}</div>
       </div>
       <div class="meta-row">
-        <div class="meta-label">Thời gian tính tiền</div>
-        <div class="meta-value">Từ <b>${escapeHtml(fromDate)}</b> đến <b>${escapeHtml(toDate)}</b></div>
+        <div class="meta-label">Từ ngày</div>
+        <div class="meta-value"><b>${escapeHtml(fromDate)}</b></div>
+        <div class="meta-label">Đến ngày</div>
+        <div class="meta-value"><b>${escapeHtml(toDate)}</b></div>
       </div>
       <div class="meta-row">
         <div class="meta-label">Tiền cọc</div>
         <div class="meta-value"><b>${fmtMoney(depositAmount)} đ</b></div>
+        <div class="meta-label">Ngày lập</div>
+        <div class="meta-value"><b>${escapeHtml(todayISO())}</b></div>
       </div>
     </div>
 
@@ -664,22 +678,83 @@
       </div>
     </div>
 
-    <div class="footer-note">
-      Ghi chú: Hóa đơn đã bao gồm các khoản phí được liệt kê phía trên.
-      Riêng điện / nước, chỉ số cũ - mới và sản lượng tiêu thụ đã được ghi chú nhỏ ngay dưới tên dịch vụ để tiện đối chiếu.
-    </div>
-
-    <div class="sign-row">
-      <div>
-        <div class="sign-title">Người lập phiếu</div>
-        <div>(Ký, ghi rõ họ tên)</div>
+    <div class="footer-wrap">
+      <div class="footer-note">
+        Ghi chú: Điện/nước được ghi ngắn gọn để hóa đơn gọn hơn nhưng vẫn đủ đối chiếu số cũ, số mới và lượng dùng.
       </div>
-      <div>
-        <div class="sign-title">Người nộp tiền</div>
-        <div>(Ký, ghi rõ họ tên)</div>
+
+      <div class="sign-row">
+        <div>
+          <div class="sign-title">Người lập phiếu</div>
+          <div>(Ký, ghi rõ họ tên)</div>
+        </div>
+        <div>
+          <div class="sign-title">Người nộp tiền</div>
+          <div>(Ký, ghi rõ họ tên)</div>
+        </div>
       </div>
     </div>
   </div>
+</body>
+</html>
+    `.trim();
+  }
+
+  function buildBatchCombinedHtml(invoices) {
+    const pages = invoices
+      .map((inv) => {
+        const html = inv.printHtml && String(inv.printHtml).trim();
+        if (html) {
+          const bodyMatch = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+          const body = bodyMatch ? bodyMatch[1] : html;
+          return `<div class="page">${body}</div>`;
+        }
+
+        return `
+          <div class="page">
+            <div style="padding:10mm; font-family:Arial,sans-serif;">
+              <h2 style="text-align:center; margin:0 0 10px 0;">${escapeHtml(inv.title || BRAND.title)}</h2>
+              <div><b>Phòng:</b> ${escapeHtml(inv.roomNumber)}</div>
+              <div><b>Người thuê:</b> ${escapeHtml(inv.tenantName || "")}</div>
+              <div><b>Ngày tạo:</b> ${escapeHtml(inv.issueDate || "")}</div>
+              <div><b>Tổng tiền:</b> ${fmtMoney(inv.total || 0)} đ</div>
+            </div>
+          </div>
+        `;
+      })
+      .join("");
+
+    return `
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <title>Toàn bộ hóa đơn</title>
+  <style>
+    @page { size: A5 landscape; margin: 7mm; }
+    body { margin:0; font-family: Arial, sans-serif; }
+    .toolbar {
+      position: sticky;
+      top: 0;
+      background: #fff;
+      z-index: 9999;
+      border-bottom: 1px solid #ddd;
+      padding: 8px;
+      display:flex;
+      gap:8px;
+    }
+    .toolbar button { padding: 6px 10px; cursor:pointer; }
+    .page { page-break-after: always; }
+    .page:last-child { page-break-after: auto; }
+    @media print { .toolbar { display:none; } }
+  </style>
+</head>
+<body>
+  <div class="toolbar">
+    <button onclick="window.print()">🖨 In / Save PDF</button>
+    <button onclick="window.close()">✖ Đóng</button>
+  </div>
+  ${pages}
 </body>
 </html>
     `.trim();
@@ -779,64 +854,6 @@
     };
   }
 
-  function buildBatchCombinedHtml(invoices) {
-    const pages = invoices.map((inv) => {
-      const html = inv.printHtml && String(inv.printHtml).trim();
-      if (html) {
-        const bodyMatch = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
-        const body = bodyMatch ? bodyMatch[1] : html;
-        return `<div class="page">${body}</div>`;
-      }
-
-      return `
-        <div class="page">
-          <div style="padding:10mm; font-family:Arial,sans-serif;">
-            <h2 style="text-align:center; margin:0 0 10px 0;">${escapeHtml(inv.title || BRAND.title)}</h2>
-            <div><b>Phòng:</b> ${escapeHtml(inv.roomNumber)}</div>
-            <div><b>Người thuê:</b> ${escapeHtml(inv.tenantName || "")}</div>
-            <div><b>Ngày tạo:</b> ${escapeHtml(inv.issueDate || "")}</div>
-            <div><b>Tổng tiền:</b> ${fmtMoney(inv.total || 0)} đ</div>
-          </div>
-        </div>
-      `;
-    }).join("");
-
-    return `
-<!doctype html>
-<html>
-<head>
-  <meta charset="utf-8"/>
-  <title>Toàn bộ hóa đơn</title>
-  <style>
-    @page { size: A5 portrait; margin: 8mm; }
-    body { margin:0; font-family: Arial, sans-serif; }
-    .toolbar {
-      position: sticky;
-      top: 0;
-      background: #fff;
-      z-index: 9999;
-      border-bottom: 1px solid #ddd;
-      padding: 8px;
-      display:flex;
-      gap:8px;
-    }
-    .toolbar button { padding: 6px 10px; cursor:pointer; }
-    .page { page-break-after: always; }
-    .page:last-child { page-break-after: auto; }
-    @media print { .toolbar { display:none; } }
-  </style>
-</head>
-<body>
-  <div class="toolbar">
-    <button onclick="window.print()">🖨 In / Save PDF</button>
-    <button onclick="window.close()">✖ Đóng</button>
-  </div>
-  ${pages}
-</body>
-</html>
-    `.trim();
-  }
-
   async function saveAllInvoicesPdf(invoices) {
     if (!Array.isArray(invoices) || !invoices.length) {
       alert("Không có hóa đơn để lưu PDF.");
@@ -848,39 +865,42 @@
       openPrintWindow(html);
       alert(
         "Chưa có thư viện html2pdf nên em mở cửa sổ in toàn bộ.\n" +
-        "Sếp chọn Save as PDF để lưu.\n\n" +
-        "Muốn tự tải file PDF bằng nút này thì thêm 2 script html2canvas + html2pdf vào nhatro.html."
+          "Sếp chọn Save as PDF để lưu.\n\n" +
+          "Muốn tự tải file PDF bằng nút này thì thêm 2 script html2canvas + html2pdf vào nhatro.html."
       );
       return;
     }
 
     const wrapper = document.createElement("div");
     wrapper.style.background = "#fff";
-    wrapper.innerHTML = invoices.map((inv) => {
-      const html = inv.printHtml && String(inv.printHtml).trim();
-      if (html) {
-        const bodyMatch = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
-        const body = bodyMatch ? bodyMatch[1] : html;
-        return `<div style="page-break-after:always;">${body}</div>`;
-      }
-      return `<div style="page-break-after:always; padding:10mm; font-family:Arial,sans-serif;">
-        <h2>${escapeHtml(inv.title || BRAND.title)}</h2>
-        <div>Phòng: ${escapeHtml(inv.roomNumber)}</div>
-        <div>Người thuê: ${escapeHtml(inv.tenantName || "")}</div>
-        <div>Tổng tiền: ${fmtMoney(inv.total || 0)} đ</div>
-      </div>`;
-    }).join("");
+    wrapper.innerHTML = invoices
+      .map((inv) => {
+        const html = inv.printHtml && String(inv.printHtml).trim();
+        if (html) {
+          const bodyMatch = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+          const body = bodyMatch ? bodyMatch[1] : html;
+          return `<div style="page-break-after:always;">${body}</div>`;
+        }
+        return `<div style="page-break-after:always; padding:10mm; font-family:Arial,sans-serif;">
+          <h2>${escapeHtml(inv.title || BRAND.title)}</h2>
+          <div>Phòng: ${escapeHtml(inv.roomNumber)}</div>
+          <div>Người thuê: ${escapeHtml(inv.tenantName || "")}</div>
+          <div>Tổng tiền: ${fmtMoney(inv.total || 0)} đ</div>
+        </div>`;
+      })
+      .join("");
 
     document.body.appendChild(wrapper);
 
     try {
-      await window.html2pdf()
+      await window
+        .html2pdf()
         .set({
           margin: 0,
           filename: `hoa-don-phong-tro-${todayISO()}.pdf`,
           image: { type: "jpeg", quality: 0.98 },
           html2canvas: { scale: 2, useCORS: true },
-          jsPDF: { unit: "mm", format: "a5", orientation: "portrait" },
+          jsPDF: { unit: "mm", format: "a5", orientation: "landscape" },
           pagebreak: { mode: ["css", "legacy"] },
         })
         .from(wrapper)
@@ -950,24 +970,403 @@
             </tr>
           </thead>
           <tbody>
-            ${drafts.map((d, idx) => {
-              const totalRow = d.lines.reduce((s, l) => s + Number(l.total || l.amount || 0), 0);
-              return `
-                <tr>
-                  <td style="padding:8px; border-bottom:1px solid #f1f5f9;"><b>${escapeHtml(d.room.number)}</b></td>
-                  <td style="padding:8px; border-bottom:1px solid #f1f5f9;">${escapeHtml(d.tenantName || "")}</td>
-                  <td style="padding:8px; border-bottom:1px solid #f1f5f9;">${escapeHtml(d.fromDate)} → ${escapeHtml(d.toDate)}</td>
-                  <td style="padding:8px; border-bottom:1px solid #f1f5f9; text-align:right;"><b>${fmtMoney(totalRow)} đ</b></td>
-                  <td style="padding:8px; border-bottom:1px solid #f1f5f9; text-align:right;">
-                    <button type="button" data-preview-index="${idx}" style="padding:6px 10px;">🖨 In</button>
-                  </td>
-                </tr>
-              `;
-            }).join("")}
+            ${drafts
+              .map((d, idx) => {
+                const totalRow = d.lines.reduce((s, l) => s + Number(l.total || l.amount || 0), 0);
+                return `
+                  <tr>
+                    <td style="padding:8px; border-bottom:1px solid #f1f5f9;"><b>${escapeHtml(d.room.number)}</b></td>
+                    <td style="padding:8px; border-bottom:1px solid #f1f5f9;">${escapeHtml(d.tenantName || "")}</td>
+                    <td style="padding:8px; border-bottom:1px solid #f1f5f9;">${escapeHtml(d.fromDate)} → ${escapeHtml(d.toDate)}</td>
+                    <td style="padding:8px; border-bottom:1px solid #f1f5f9; text-align:right;"><b>${fmtMoney(totalRow)} đ</b></td>
+                    <td style="padding:8px; border-bottom:1px solid #f1f5f9; text-align:right;">
+                      <button type="button" data-preview-index="${idx}" style="padding:6px 10px;">🖨 In</button>
+                    </td>
+                  </tr>
+                `;
+              })
+              .join("")}
           </tbody>
         </table>
       </div>
     `;
+  }
+
+  function getMonthTitleText(fromDate, toDate) {
+    const ym = ymOf(toDate || fromDate || todayISO()) || ymOf(todayISO());
+    const [y, m] = ym.split("-");
+    return `tháng ${Number(m)}/${y}`;
+  }
+
+  function buildAcceptanceSheetHtml({ appState, fromDate, toDate }) {
+    const rooms = getOccupiedRooms(appState);
+
+    const rows = rooms
+      .map((room, idx) => {
+        const tenantName = getFirstTenantName(room);
+
+        const elec = getMeterLineData(appState, "electricity", room.number, ymOf(toDate), toDate);
+        const water = getMeterLineData(appState, "water", room.number, ymOf(toDate), toDate);
+
+        return `
+          <tr>
+            <td>${idx + 1}</td>
+            <td><b>${escapeHtml(room.number)}</b></td>
+            <td>${escapeHtml(tenantName)}</td>
+            <td class="num">${elec.prev}</td>
+            <td></td>
+            <td class="num">${water.prev}</td>
+            <td></td>
+            <td></td>
+          </tr>
+        `;
+      })
+      .join("");
+
+    const title = `PHIẾU CHỐT SỐ ĐIỆN NƯỚC NHÀ TRỌ THIỆP MẾN ${getMonthTitleText(fromDate, toDate).toUpperCase()}`;
+
+    return `
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>${escapeHtml(title)}</title>
+  <style>
+    @page { size: A4 landscape; margin: 10mm; }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: Arial, Helvetica, sans-serif; color: #111827; }
+    .toolbar {
+      padding: 8px;
+      border-bottom: 1px solid #d1d5db;
+      display: flex;
+      gap: 8px;
+      background: #fff;
+    }
+    .toolbar button {
+      padding: 6px 10px;
+      font-size: 12px;
+      cursor: pointer;
+      border: 1px solid #cbd5e1;
+      background: #f8fafc;
+      border-radius: 6px;
+    }
+    .page { padding: 8px 0 0; }
+    .title {
+      text-align: center;
+      font-size: 22px;
+      font-weight: 800;
+      margin-bottom: 8px;
+      text-transform: uppercase;
+    }
+    .subline {
+      font-size: 14px;
+      margin-bottom: 10px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+      font-size: 13px;
+    }
+    th, td {
+      border: 1px solid #111827;
+      padding: 6px 6px;
+      vertical-align: middle;
+      height: 32px;
+    }
+    th {
+      background: #f3f4f6;
+      text-align: center;
+      font-weight: 700;
+    }
+    td.num { text-align: right; }
+    .note {
+      margin-top: 8px;
+      font-size: 12px;
+      color: #374151;
+    }
+    .sign {
+      margin-top: 16px;
+      display: flex;
+      justify-content: flex-end;
+    }
+    .sign-box {
+      width: 260px;
+      text-align: center;
+      font-size: 13px;
+    }
+    .sign-space {
+      height: 70px;
+    }
+    @media print {
+      .toolbar { display: none; }
+      body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    }
+  </style>
+</head>
+<body>
+  <div class="toolbar">
+    <button onclick="window.print()">🖨 In</button>
+    <button onclick="window.close()">✖ Đóng</button>
+  </div>
+
+  <div class="page">
+    <div class="title">${escapeHtml(title)}</div>
+    <div class="subline">Từ ngày <b>${escapeHtml(fromDate)}</b> đến ngày <b>${escapeHtml(toDate)}</b></div>
+
+    <table>
+      <thead>
+        <tr>
+          <th style="width:42px;">STT</th>
+          <th style="width:80px;">Phòng</th>
+          <th style="width:180px;">Tên chủ phòng</th>
+          <th style="width:95px;">Số điện cũ</th>
+          <th style="width:95px;">Số điện mới</th>
+          <th style="width:95px;">Số nước cũ</th>
+          <th style="width:95px;">Số nước mới</th>
+          <th>Ghi chú</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rows}
+      </tbody>
+    </table>
+
+    <div class="note">
+      Dùng để mang đi nghiệm thu từng phòng và ghi tay số công tơ mới tại thời điểm kiểm tra.
+    </div>
+
+    <div class="sign">
+      <div class="sign-box">
+        <div>Ngày ..... / ..... / ..........</div>
+        <div style="margin-top:6px;"><b>Người nghiệm thu</b></div>
+        <div class="sign-space"></div>
+        <div>(Ký, ghi rõ họ tên)</div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
+    `.trim();
+  }
+
+  function buildSummarySheetHtml({ appState, fromDate, toDate }) {
+    const rooms = getOccupiedRooms(appState);
+
+    const costColumns = [];
+    const seen = new Set();
+
+    rooms.forEach((room) => {
+      const items = Array.isArray(room.costItems) ? room.costItems : [];
+      items.forEach((ci) => {
+        const name = String(ci?.name || "").trim();
+        if (!name) return;
+
+        const n = normalizeText(name);
+        if (
+          n.includes("dien") ||
+          n.includes("điện") ||
+          n.includes("nuoc") ||
+          n.includes("nước")
+        ) {
+          return;
+        }
+
+        if (!seen.has(name)) {
+          seen.add(name);
+          costColumns.push(name);
+        }
+      });
+    });
+
+    const headerExtra = costColumns
+      .map((name) => `<th style="min-width:90px;">${escapeHtml(name)}</th>`)
+      .join("");
+
+    const rows = rooms
+      .map((room, idx) => {
+        const tenantName = getFirstTenantName(room);
+        const draft = buildInvoiceDraft(
+          room,
+          appState,
+          fromDate,
+          toDate,
+          tenantName,
+          `Hóa đơn phòng ${room.number} từ ${fromDate} đến ${toDate}`
+        );
+
+        const elecLine =
+          draft.lines.find((x) => x.type === "electricity") || {
+            oldReading: 0,
+            newReading: 0,
+            used: 0,
+            total: 0,
+          };
+        const waterLine =
+          draft.lines.find((x) => x.type === "water") || {
+            oldReading: 0,
+            newReading: 0,
+            used: 0,
+            total: 0,
+          };
+
+        const otherMap = {};
+        draft.lines.forEach((line) => {
+          if (line.type === "electricity" || line.type === "water") return;
+          if (normalizeText(line.name) === normalizeText("Tiền phòng")) return;
+          otherMap[line.name] = Number(line.total || line.amount || 0);
+        });
+
+        const extraCells = costColumns
+          .map((name) => `<td class="num">${fmtMoney(otherMap[name] || 0)}</td>`)
+          .join("");
+
+        const total = draft.lines.reduce((s, l) => s + Number(l.total || l.amount || 0), 0);
+
+        return `
+          <tr>
+            <td>${idx + 1}</td>
+            <td><b>${escapeHtml(room.number)}</b></td>
+            <td>${escapeHtml(tenantName)}</td>
+
+            <td class="num">${elecLine.oldReading || 0}</td>
+            <td class="num">${elecLine.newReading || 0}</td>
+            <td class="num">${elecLine.used || 0}</td>
+            <td class="num">${fmtMoney(elecLine.total || 0)}</td>
+
+            <td class="num">${waterLine.oldReading || 0}</td>
+            <td class="num">${waterLine.newReading || 0}</td>
+            <td class="num">${waterLine.used || 0}</td>
+            <td class="num">${fmtMoney(waterLine.total || 0)}</td>
+
+            ${extraCells}
+            <td class="num"><b>${fmtMoney(total)}</b></td>
+            <td></td>
+          </tr>
+        `;
+      })
+      .join("");
+
+    const title = `PHIẾU TỔNG HỢP NHÀ TRỌ THIỆP MẾN ${getMonthTitleText(fromDate, toDate).toUpperCase()}`;
+
+    return `
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>${escapeHtml(title)}</title>
+  <style>
+    @page { size: A4 landscape; margin: 8mm; }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: Arial, Helvetica, sans-serif; color: #111827; }
+    .toolbar {
+      padding: 8px;
+      border-bottom: 1px solid #d1d5db;
+      display: flex;
+      gap: 8px;
+      background: #fff;
+    }
+    .toolbar button {
+      padding: 6px 10px;
+      font-size: 12px;
+      cursor: pointer;
+      border: 1px solid #cbd5e1;
+      background: #f8fafc;
+      border-radius: 6px;
+    }
+    .page { padding-top: 8px; }
+    .title {
+      text-align: center;
+      font-size: 20px;
+      font-weight: 800;
+      margin-bottom: 8px;
+      text-transform: uppercase;
+    }
+    .subline {
+      font-size: 13px;
+      margin-bottom: 8px;
+    }
+    .table-wrap {
+      overflow: visible;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: auto;
+      font-size: 11px;
+    }
+    th, td {
+      border: 1px solid #111827;
+      padding: 4px 5px;
+      vertical-align: middle;
+      white-space: nowrap;
+    }
+    th {
+      background: #f3f4f6;
+      text-align: center;
+      font-weight: 700;
+    }
+    td.num {
+      text-align: right;
+    }
+    .small {
+      font-size: 10px;
+    }
+    @media print {
+      .toolbar { display: none; }
+      body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    }
+  </style>
+</head>
+<body>
+  <div class="toolbar">
+    <button onclick="window.print()">🖨 In</button>
+    <button onclick="window.close()">✖ Đóng</button>
+  </div>
+
+  <div class="page">
+    <div class="title">${escapeHtml(title)}</div>
+    <div class="subline">Từ ngày <b>${escapeHtml(fromDate)}</b> đến ngày <b>${escapeHtml(toDate)}</b></div>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th rowspan="2">STT</th>
+            <th rowspan="2">Phòng</th>
+            <th rowspan="2">Tên chủ phòng</th>
+
+            <th colspan="4">Điện</th>
+            <th colspan="4">Nước</th>
+
+            ${headerExtra}
+
+            <th rowspan="2">Tổng số tiền</th>
+            <th rowspan="2">Ghi chú</th>
+          </tr>
+          <tr>
+            <th class="small">Cũ</th>
+            <th class="small">Mới</th>
+            <th class="small">Dùng</th>
+            <th class="small">Thành tiền</th>
+
+            <th class="small">Cũ</th>
+            <th class="small">Mới</th>
+            <th class="small">Dùng</th>
+            <th class="small">Thành tiền</th>
+
+            ${costColumns.map(() => `<th class="small">Tiền</th>`).join("")}
+          </tr>
+        </thead>
+        <tbody>
+          ${rows}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</body>
+</html>
+    `.trim();
   }
 
   function openInvoiceForRoom(roomNumber, appState) {
@@ -1044,8 +1443,7 @@
       const toDate = toISO10(toInput.value) || defaultTo;
       const tenantNameVal = (tenantInput.value || "").trim();
       const titleVal =
-        (titleInput.value || "").trim() ||
-        `Hóa đơn xuất phòng ${room.number} kỳ ${latestYM}`;
+        (titleInput.value || "").trim() || `Hóa đơn xuất phòng ${room.number} kỳ ${latestYM}`;
 
       return buildInvoiceDraft(room, appState, fromDate, toDate, tenantNameVal, titleVal);
     }
@@ -1074,7 +1472,9 @@
             </tr>
           </thead>
           <tbody>
-            ${draft.lines.map((l) => `
+            ${draft.lines
+              .map(
+                (l) => `
               <tr>
                 <td style="padding:6px; border:1px solid #e5e7eb;">
                   <div><b>${escapeHtml(l.name || l.label || "")}</b></div>
@@ -1085,7 +1485,9 @@
                 <td style="padding:6px; border:1px solid #e5e7eb;">${escapeHtml(l.unit || "")}</td>
                 <td style="padding:6px; border:1px solid #e5e7eb; text-align:right;"><b>${fmtMoney(l.total || l.amount || 0)}</b></td>
               </tr>
-            `).join("")}
+            `
+              )
+              .join("")}
           </tbody>
         </table>
 
@@ -1347,8 +1749,152 @@
     }
   }
 
+  function openAcceptanceSheetForAllOccupiedRooms(appState) {
+    ensureState(appState);
+
+    const rooms = getOccupiedRooms(appState);
+    if (!rooms.length) {
+      alert("Không có phòng đang thuê.");
+      return;
+    }
+
+    const today = todayISO();
+    const currentYM = ymOf(today);
+    const defaultFrom = firstDayOfMonth(currentYM);
+    const defaultTo = today;
+
+    const { close } = openModal(`
+      <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap;">
+        <h3 style="margin:0;">🖨 In phiếu nghiệm thu</h3>
+        <button id="acc-close-btn" style="padding:6px 10px;">✖ Đóng</button>
+      </div>
+
+      <div style="margin-top:12px; display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:12px;">
+        <div>
+          <label style="font-size:13px;">Từ ngày</label><br>
+          <input id="acc-from-date" type="date" value="${defaultFrom}" style="padding:8px; width:100%;">
+        </div>
+        <div>
+          <label style="font-size:13px;">Đến ngày</label><br>
+          <input id="acc-to-date" type="date" value="${defaultTo}" style="padding:8px; width:100%;">
+        </div>
+      </div>
+
+      <div style="margin-top:12px; display:flex; gap:8px; flex-wrap:wrap;">
+        <button id="acc-preview-btn" style="padding:8px 12px;">👁 Xem trước</button>
+        <button id="acc-print-btn" style="padding:8px 12px; font-weight:700;">🖨 In phiếu nghiệm thu</button>
+      </div>
+
+      <div id="acc-msg" style="margin-top:10px; font-size:12px;"></div>
+    `);
+
+    const closeBtn = document.getElementById("acc-close-btn");
+    const fromInput = document.getElementById("acc-from-date");
+    const toInput = document.getElementById("acc-to-date");
+    const previewBtn = document.getElementById("acc-preview-btn");
+    const printBtn = document.getElementById("acc-print-btn");
+    const msgEl = document.getElementById("acc-msg");
+
+    if (closeBtn) closeBtn.onclick = close;
+
+    function buildHtml() {
+      const fromDate = toISO10(fromInput?.value) || defaultFrom;
+      const toDate = toISO10(toInput?.value) || defaultTo;
+      return buildAcceptanceSheetHtml({ appState, fromDate, toDate });
+    }
+
+    if (previewBtn) {
+      previewBtn.onclick = () => {
+        openPrintWindow(buildHtml());
+        msgEl.style.color = "#16a34a";
+        msgEl.innerText = "Đã mở xem trước phiếu nghiệm thu.";
+      };
+    }
+
+    if (printBtn) {
+      printBtn.onclick = () => {
+        openPrintWindow(buildHtml());
+        msgEl.style.color = "#16a34a";
+        msgEl.innerText = "Đã mở cửa sổ in phiếu nghiệm thu.";
+      };
+    }
+  }
+
+  function openSummarySheetForAllOccupiedRooms(appState) {
+    ensureState(appState);
+
+    const rooms = getOccupiedRooms(appState);
+    if (!rooms.length) {
+      alert("Không có phòng đang thuê.");
+      return;
+    }
+
+    const today = todayISO();
+    const currentYM = ymOf(today);
+    const defaultFrom = firstDayOfMonth(currentYM);
+    const defaultTo = today;
+
+    const { close } = openModal(`
+      <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap;">
+        <h3 style="margin:0;">🖨 In phiếu tổng hợp</h3>
+        <button id="sum-close-btn" style="padding:6px 10px;">✖ Đóng</button>
+      </div>
+
+      <div style="margin-top:12px; display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:12px;">
+        <div>
+          <label style="font-size:13px;">Từ ngày</label><br>
+          <input id="sum-from-date" type="date" value="${defaultFrom}" style="padding:8px; width:100%;">
+        </div>
+        <div>
+          <label style="font-size:13px;">Đến ngày</label><br>
+          <input id="sum-to-date" type="date" value="${defaultTo}" style="padding:8px; width:100%;">
+        </div>
+      </div>
+
+      <div style="margin-top:12px; display:flex; gap:8px; flex-wrap:wrap;">
+        <button id="sum-preview-btn" style="padding:8px 12px;">👁 Xem trước</button>
+        <button id="sum-print-btn" style="padding:8px 12px; font-weight:700;">🖨 In phiếu tổng hợp</button>
+      </div>
+
+      <div id="sum-msg" style="margin-top:10px; font-size:12px;"></div>
+    `);
+
+    const closeBtn = document.getElementById("sum-close-btn");
+    const fromInput = document.getElementById("sum-from-date");
+    const toInput = document.getElementById("sum-to-date");
+    const previewBtn = document.getElementById("sum-preview-btn");
+    const printBtn = document.getElementById("sum-print-btn");
+    const msgEl = document.getElementById("sum-msg");
+
+    if (closeBtn) closeBtn.onclick = close;
+
+    function buildHtml() {
+      const fromDate = toISO10(fromInput?.value) || defaultFrom;
+      const toDate = toISO10(toInput?.value) || defaultTo;
+      return buildSummarySheetHtml({ appState, fromDate, toDate });
+    }
+
+    if (previewBtn) {
+      previewBtn.onclick = () => {
+        openPrintWindow(buildHtml());
+        msgEl.style.color = "#16a34a";
+        msgEl.innerText = "Đã mở xem trước phiếu tổng hợp.";
+      };
+    }
+
+    if (printBtn) {
+      printBtn.onclick = () => {
+        openPrintWindow(buildHtml());
+        msgEl.style.color = "#16a34a";
+        msgEl.innerText = "Đã mở cửa sổ in phiếu tổng hợp.";
+      };
+    }
+  }
+
   window.openInvoiceForRoom = openInvoiceForRoom;
   window.openInvoicesForAllOccupiedRooms = openInvoicesForAllOccupiedRooms;
+  window.openAcceptanceSheetForAllOccupiedRooms = openAcceptanceSheetForAllOccupiedRooms;
+  window.openSummarySheetForAllOccupiedRooms = openSummarySheetForAllOccupiedRooms;
   window.__invoiceBuildBatchCombinedHtml = buildBatchCombinedHtml;
   window.__invoiceSaveAllInvoicesPdf = saveAllInvoicesPdf;
   window.__invoiceOpenPrintWindow = openPrintWindow;
