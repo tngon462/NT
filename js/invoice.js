@@ -74,6 +74,19 @@
     return Number.isNaN(n) ? 0 : n;
   }
 
+  function getPrintFontStack() {
+    return [
+      '"Noto Sans"',
+      '"DejaVu Sans"',
+      '"Segoe UI"',
+      "Roboto",
+      "Arial",
+      "Helvetica",
+      "Tahoma",
+      "sans-serif",
+    ].join(", ");
+  }
+
   function ensureState(appState) {
     if (!appState || typeof appState !== "object") return;
 
@@ -442,6 +455,52 @@
     return m ? m[1] : "";
   }
 
+  function buildOtherCostColumns({ rooms, appState, draftMap }) {
+    const cols = [];
+    const seen = new Set();
+
+    function shouldSkipCostName(name) {
+      const key = normalizeText(name);
+      return (
+        !key ||
+        key.includes("dien") ||
+        key.includes("điện") ||
+        key.includes("nuoc") ||
+        key.includes("nước") ||
+        key === normalizeText("Tiền phòng")
+      );
+    }
+
+    function addCostColumn(name) {
+      const clean = String(name || "").trim();
+      if (!clean || shouldSkipCostName(clean)) return;
+
+      const key = normalizeText(clean);
+      if (!seen.has(key)) {
+        seen.add(key);
+        cols.push(clean);
+      }
+    }
+
+    (appState.costs || []).forEach((c) => addCostColumn(c?.name));
+
+    rooms.forEach((room) => {
+      const items = Array.isArray(room.costItems) ? room.costItems : [];
+      items.forEach((ci) => addCostColumn(ci?.name));
+    });
+
+    rooms.forEach((room) => {
+      const draft = draftMap.get(String(room.number));
+      if (!draft || !Array.isArray(draft.lines)) return;
+
+      draft.lines.forEach((line) => {
+        addCostColumn(line?.name || line?.label);
+      });
+    });
+
+    return cols.sort((a, b) => String(a).localeCompare(String(b), "vi"));
+  }
+
   function buildPrintA5Html({
     title,
     room,
@@ -452,6 +511,7 @@
     depositAmount = 0,
     code = "",
   }) {
+    const printFont = getPrintFontStack();
     const sum = lines.reduce((a, l) => a + Number(l.total || l.amount || 0), 0);
 
     const rows = lines
@@ -492,9 +552,12 @@
       margin: 0;
       padding: 0;
       background: #fff;
-      font-family: Arial, Helvetica, sans-serif;
+      font-family: ${printFont};
       color: #111827;
       font-size: 11px;
+      text-rendering: optimizeLegibility;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
     }
 
     .toolbar {
@@ -516,9 +579,9 @@
       border: 1px solid #cbd5e1;
       background: #f8fafc;
       border-radius: 6px;
+      font-family: ${printFont};
     }
 
-    /* Nửa trên A4 = 210mm x 148.5mm, đúng để in lên giấy A5 ngang đặt trên khay */
     .print-sheet {
       width: 210mm;
       height: 148.5mm;
@@ -542,6 +605,7 @@
       letter-spacing: 0.2px;
       text-transform: uppercase;
       margin-bottom: 2px;
+      font-family: ${printFont};
     }
 
     .doc-subtitle {
@@ -591,6 +655,7 @@
       border-collapse: collapse;
       table-layout: fixed;
       margin-top: 0;
+      font-family: ${printFont};
     }
 
     .invoice-table th,
@@ -768,6 +833,7 @@
   }
 
   function buildBatchCombinedHtml(invoices) {
+    const printFont = getPrintFontStack();
     const firstHtml = invoices.find((inv) => inv?.printHtml)?.printHtml || "";
     const invoiceStyle = extractHeadStyle(firstHtml);
 
@@ -782,7 +848,7 @@
         return `
           <div class="batch-invoice-page">
             <div class="print-sheet">
-              <div style="padding:10mm; font-family:Arial,sans-serif;">
+              <div style="padding:10mm; font-family:${printFont};">
                 <h2 style="text-align:center; margin:0 0 10px 0;">${escapeHtml(inv.title || BRAND.title)}</h2>
                 <div><b>Phòng:</b> ${escapeHtml(inv.roomNumber)}</div>
                 <div><b>Người thuê:</b> ${escapeHtml(inv.tenantName || "")}</div>
@@ -813,7 +879,10 @@
       margin: 0;
       padding: 0;
       background: #fff;
-      font-family: Arial, sans-serif;
+      font-family: ${printFont};
+      text-rendering: optimizeLegibility;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
     }
 
     .batch-toolbar {
@@ -833,6 +902,7 @@
       border: 1px solid #cbd5e1;
       background: #f8fafc;
       border-radius: 6px;
+      font-family: ${printFont};
     }
 
     .batch-invoice-page {
@@ -985,8 +1055,10 @@
       return;
     }
 
+    const printFont = getPrintFontStack();
     const wrapper = document.createElement("div");
     wrapper.style.background = "#fff";
+    wrapper.style.fontFamily = printFont;
     wrapper.innerHTML = invoices
       .map((inv) => {
         const html = inv.printHtml && String(inv.printHtml).trim();
@@ -994,7 +1066,7 @@
           const body = extractBodyContent(html);
           return `<div style="page-break-after:always;">${body}</div>`;
         }
-        return `<div style="page-break-after:always; padding:10mm; font-family:Arial,sans-serif;">
+        return `<div style="page-break-after:always; padding:10mm; font-family:${printFont};">
           <h2>${escapeHtml(inv.title || BRAND.title)}</h2>
           <div>Phòng: ${escapeHtml(inv.roomNumber)}</div>
           <div>Người thuê: ${escapeHtml(inv.tenantName || "")}</div>
@@ -1008,7 +1080,7 @@
       (extractHeadStyle(invoices.find((x) => x?.printHtml)?.printHtml || "") || "") +
       `
       @page { size: A4 portrait; margin: 0; }
-      html, body { margin:0; padding:0; background:#fff; }
+      html, body { margin:0; padding:0; background:#fff; font-family:${printFont}; }
     `;
     wrapper.prepend(style);
 
@@ -1121,6 +1193,7 @@
   }
 
   function buildAcceptanceSheetHtml({ appState, fromDate, toDate }) {
+    const printFont = getPrintFontStack();
     const rooms = getAllRooms(appState);
 
     const rows = rooms
@@ -1160,7 +1233,14 @@
   <style>
     @page { size: A4 landscape; margin: 10mm; }
     * { box-sizing: border-box; }
-    body { margin: 0; font-family: Arial, Helvetica, sans-serif; color: #111827; }
+    body {
+      margin: 0;
+      font-family: ${printFont};
+      color: #111827;
+      text-rendering: optimizeLegibility;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
     .toolbar {
       padding: 8px;
       border-bottom: 1px solid #d1d5db;
@@ -1175,6 +1255,7 @@
       border: 1px solid #cbd5e1;
       background: #f8fafc;
       border-radius: 6px;
+      font-family: ${printFont};
     }
     .page { padding: 8px 0 0; }
     .title {
@@ -1183,6 +1264,7 @@
       font-weight: 800;
       margin-bottom: 8px;
       text-transform: uppercase;
+      font-family: ${printFont};
     }
     .subline {
       font-size: 14px;
@@ -1193,6 +1275,7 @@
       border-collapse: collapse;
       table-layout: fixed;
       font-size: 13px;
+      font-family: ${printFont};
     }
     th, td {
       border: 1px solid #111827;
@@ -1283,58 +1366,38 @@
   }
 
   function buildSummarySheetHtml({ appState, fromDate, toDate }) {
+    const printFont = getPrintFontStack();
     const rooms = getAllRooms(appState);
 
     const draftMap = new Map();
-    const costColumns = [];
-    const seen = new Set();
-
-    function addCostColumn(name) {
-      const clean = String(name || "").trim();
-      if (!clean) return;
-      const key = normalizeText(clean);
-      if (
-        key.includes("dien") ||
-        key.includes("điện") ||
-        key.includes("nuoc") ||
-        key.includes("nước") ||
-        key === normalizeText("Tiền phòng")
-      ) {
-        return;
-      }
-      if (!seen.has(key)) {
-        seen.add(key);
-        costColumns.push(clean);
-      }
-    }
 
     rooms.forEach((room) => {
-      if (isRoomOccupied(room)) {
-        const tenantName = getFirstTenantName(room);
-        const draft = buildInvoiceDraft(
-          room,
-          appState,
-          fromDate,
-          toDate,
-          tenantName,
-          `Hóa đơn phòng ${room.number} từ ${fromDate} đến ${toDate}`
-        );
-        draftMap.set(String(room.number), draft);
+      if (!isRoomOccupied(room)) return;
 
-        draft.lines.forEach((line) => {
-          if (line.type === "electricity" || line.type === "water") return;
-          if (normalizeText(line.name) === normalizeText("Tiền phòng")) return;
-          addCostColumn(line.name);
-        });
-      }
+      const tenantName = getFirstTenantName(room);
+      const draft = buildInvoiceDraft(
+        room,
+        appState,
+        fromDate,
+        toDate,
+        tenantName,
+        `Hóa đơn phòng ${room.number} từ ${fromDate} đến ${toDate}`
+      );
 
-      const items = Array.isArray(room.costItems) ? room.costItems : [];
-      items.forEach((ci) => addCostColumn(ci?.name));
+      draftMap.set(String(room.number), draft);
+    });
+
+    const costColumns = buildOtherCostColumns({
+      rooms,
+      appState,
+      draftMap,
     });
 
     const headerExtra = `
-      <th rowspan="2" style="min-width:90px;">Tiền phòng</th>
-      ${costColumns.map((name) => `<th rowspan="2" style="min-width:90px;">${escapeHtml(name)}</th>`).join("")}
+      <th rowspan="2" style="min-width:100px;">Tiền phòng</th>
+      ${costColumns
+        .map((name) => `<th rowspan="2" style="min-width:100px;">${escapeHtml(name)}</th>`)
+        .join("")}
     `;
 
     const totals = {
@@ -1357,8 +1420,21 @@
         const tenantName = occupied ? getFirstTenantName(room) : "";
         const rowClass = occupied ? "" : "room-empty";
 
-        const elecMeter = getMeterLineData(appState, "electricity", room.number, ymOf(toDate), toDate);
-        const waterMeter = getMeterLineData(appState, "water", room.number, ymOf(toDate), toDate);
+        const elecMeter = getMeterLineData(
+          appState,
+          "electricity",
+          room.number,
+          ymOf(toDate),
+          toDate
+        );
+
+        const waterMeter = getMeterLineData(
+          appState,
+          "water",
+          room.number,
+          ymOf(toDate),
+          toDate
+        );
 
         let elecLine = {
           oldReading: elecMeter.prev,
@@ -1383,7 +1459,7 @@
           const draft = draftMap.get(String(room.number));
 
           elecLine =
-            draft.lines.find((x) => x.type === "electricity") || {
+            draft?.lines?.find((x) => x.type === "electricity") || {
               oldReading: elecMeter.prev,
               newReading: elecMeter.curr,
               used: elecMeter.used,
@@ -1391,7 +1467,7 @@
             };
 
           waterLine =
-            draft.lines.find((x) => x.type === "water") || {
+            draft?.lines?.find((x) => x.type === "water") || {
               oldReading: waterMeter.prev,
               newReading: waterMeter.curr,
               used: waterMeter.used,
@@ -1399,13 +1475,26 @@
             };
 
           const roomLine =
-            draft.lines.find((line) => normalizeText(line.name) === normalizeText("Tiền phòng")) || null;
+            draft?.lines?.find(
+              (line) => normalizeText(line.name) === normalizeText("Tiền phòng")
+            ) || null;
 
           const otherMap = {};
-          draft.lines.forEach((line) => {
+
+          (draft?.lines || []).forEach((line) => {
+            const key = normalizeText(line?.name || line?.label);
+            if (!key) return;
             if (line.type === "electricity" || line.type === "water") return;
-            if (normalizeText(line.name) === normalizeText("Tiền phòng")) return;
-            otherMap[line.name] = Number(line.total || line.amount || 0);
+            if (key === normalizeText("Tiền phòng")) return;
+
+            const matchedColumn =
+              costColumns.find((col) => normalizeText(col) === key) ||
+              line.name ||
+              line.label;
+
+            otherMap[matchedColumn] =
+              Number(otherMap[matchedColumn] || 0) +
+              Number(line.total || line.amount || 0);
           });
 
           roomFee = fmtMoney(roomLine?.total || roomLine?.amount || 0);
@@ -1414,9 +1503,11 @@
             .map((name) => `<td class="num">${fmtMoney(otherMap[name] || 0)}</td>`)
             .join("");
 
-          total = fmtMoney(
-            draft.lines.reduce((s, l) => s + Number(l.total || l.amount || 0), 0)
+          const grandRowTotal = Number(
+            (draft?.lines || []).reduce((s, l) => s + Number(l.total || l.amount || 0), 0)
           );
+
+          total = fmtMoney(grandRowTotal);
 
           totals.elecOld += Number(elecLine.oldReading || 0);
           totals.elecNew += Number(elecLine.newReading || 0);
@@ -1434,9 +1525,7 @@
             totals.extras[name] += Number(otherMap[name] || 0);
           });
 
-          totals.grand += Number(
-            draft.lines.reduce((s, l) => s + Number(l.total || l.amount || 0), 0)
-          );
+          totals.grand += grandRowTotal;
         }
 
         return `
@@ -1479,13 +1568,18 @@
         <td class="num">${fmtMoney(totals.waterMoney)}</td>
 
         <td class="num">${fmtMoney(totals.roomMoney)}</td>
-        ${costColumns.map((name) => `<td class="num">${fmtMoney(totals.extras[name] || 0)}</td>`).join("")}
+        ${costColumns
+          .map((name) => `<td class="num">${fmtMoney(totals.extras[name] || 0)}</td>`)
+          .join("")}
         <td class="num"><b>${fmtMoney(totals.grand)}</b></td>
         <td></td>
       </tr>
     `;
 
-    const title = `PHIẾU TỔNG HỢP NHÀ TRỌ THIỆP MẾN ${getMonthTitleText(fromDate, toDate).toUpperCase()}`;
+    const title = `PHIẾU TỔNG HỢP NHÀ TRỌ THIỆP MẾN ${getMonthTitleText(
+      fromDate,
+      toDate
+    ).toUpperCase()}`;
 
     return `
 <!doctype html>
@@ -1496,7 +1590,14 @@
   <style>
     @page { size: A4 landscape; margin: 8mm; }
     * { box-sizing: border-box; }
-    body { margin: 0; font-family: Arial, Helvetica, sans-serif; color: #111827; }
+    body {
+      margin: 0;
+      font-family: ${printFont};
+      color: #111827;
+      text-rendering: optimizeLegibility;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
     .toolbar {
       padding: 8px;
       border-bottom: 1px solid #d1d5db;
@@ -1511,18 +1612,22 @@
       border: 1px solid #cbd5e1;
       background: #f8fafc;
       border-radius: 6px;
+      font-family: ${printFont};
     }
     .page { padding-top: 8px; }
     .title {
       text-align: center;
-      font-size: 20px;
+      font-size: 22px;
       font-weight: 800;
       margin-bottom: 8px;
       text-transform: uppercase;
+      letter-spacing: 0.2px;
+      font-family: ${printFont};
     }
     .subline {
       font-size: 13px;
       margin-bottom: 8px;
+      font-family: ${printFont};
     }
     .table-wrap {
       overflow: visible;
@@ -1532,6 +1637,7 @@
       border-collapse: collapse;
       table-layout: auto;
       font-size: 11px;
+      font-family: ${printFont};
     }
     th, td {
       border: 1px solid #111827;
