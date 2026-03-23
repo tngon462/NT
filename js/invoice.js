@@ -430,6 +430,18 @@
     return [...baseLines, ...utilityLines];
   }
 
+  function extractBodyContent(html) {
+    const bodyMatch = String(html || "").match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+    let body = bodyMatch ? bodyMatch[1] : String(html || "");
+    body = body.replace(/<div class="toolbar"[\s\S]*?<\/div>/i, "");
+    return body.trim();
+  }
+
+  function extractHeadStyle(html) {
+    const m = String(html || "").match(/<style[^>]*>([\s\S]*?)<\/style>/i);
+    return m ? m[1] : "";
+  }
+
   function buildPrintA5Html({
     title,
     room,
@@ -469,15 +481,22 @@
   <meta charset="utf-8" />
   <title>${escapeHtml(title || BRAND.title)}</title>
   <style>
-    @page { size: A5 landscape; margin: 7mm; }
-    * { box-sizing: border-box; }
-    body {
+    @page {
+      size: A4 portrait;
       margin: 0;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: #fff;
       font-family: Arial, Helvetica, sans-serif;
       color: #111827;
       font-size: 11px;
-      background: #fff;
     }
+
     .toolbar {
       padding: 8px;
       border-bottom: 1px solid #d1d5db;
@@ -485,7 +504,11 @@
       gap: 8px;
       align-items: center;
       background: #fff;
+      position: sticky;
+      top: 0;
+      z-index: 10;
     }
+
     .toolbar button {
       padding: 6px 10px;
       font-size: 12px;
@@ -494,52 +517,71 @@
       background: #f8fafc;
       border-radius: 6px;
     }
-    .page { padding: 3px 2px 0; }
+
+    /* Nửa trên A4 = 210mm x 148.5mm, đúng để in lên giấy A5 ngang đặt trên khay */
+    .print-sheet {
+      width: 210mm;
+      height: 148.5mm;
+      padding: 7mm 7mm 5mm;
+      overflow: hidden;
+      page-break-after: always;
+      break-after: page;
+      background: #fff;
+    }
+
     .doc-header {
       text-align: center;
-      border: 1.5px solid #111827;
-      padding: 7px 8px 6px;
-      margin-bottom: 6px;
+      border: 1.4px solid #111827;
+      padding: 5px 7px 5px;
+      margin-bottom: 5px;
     }
+
     .doc-title {
-      font-size: 15px;
+      font-size: 14px;
       font-weight: 800;
-      letter-spacing: 0.3px;
+      letter-spacing: 0.2px;
       text-transform: uppercase;
-      margin-bottom: 3px;
+      margin-bottom: 2px;
     }
+
     .doc-subtitle {
-      font-size: 10px;
+      font-size: 9px;
       color: #374151;
-      line-height: 1.35;
+      line-height: 1.25;
     }
+
     .invoice-code {
-      margin-top: 3px;
-      font-size: 10px;
+      margin-top: 2px;
+      font-size: 9px;
       color: #4b5563;
     }
+
     .meta-grid {
       width: 100%;
       border: 1px solid #111827;
       border-bottom: none;
       margin-bottom: 0;
     }
+
     .meta-row {
       display: grid;
-      grid-template-columns: 108px 1fr 108px 1fr;
+      grid-template-columns: 90px 1fr 90px 1fr;
       border-bottom: 1px solid #111827;
-      min-height: 26px;
+      min-height: 22px;
     }
+
     .meta-label {
-      padding: 5px 7px;
+      padding: 4px 6px;
       font-weight: 700;
       border-right: 1px solid #111827;
       background: #f9fafb;
     }
+
     .meta-value {
-      padding: 5px 7px;
+      padding: 4px 6px;
       border-right: 1px solid #111827;
     }
+
     .meta-row .meta-value:last-child {
       border-right: none;
     }
@@ -550,72 +592,89 @@
       table-layout: fixed;
       margin-top: 0;
     }
+
     .invoice-table th,
     .invoice-table td {
       border: 1px solid #111827;
-      padding: 4px 5px;
+      padding: 3px 4px;
       vertical-align: top;
     }
+
     .invoice-table th {
       text-align: center;
       font-weight: 700;
       background: #f3f4f6;
+      font-size: 9px;
+    }
+
+    .col-stt { width: 28px; text-align: center; }
+    .col-name { width: auto; }
+    .col-unitprice { width: 62px; text-align: right; white-space: nowrap; }
+    .col-qty { width: 42px; text-align: right; white-space: nowrap; }
+    .col-unit { width: 44px; text-align: center; white-space: nowrap; }
+    .col-total { width: 76px; text-align: right; white-space: nowrap; font-weight: 700; }
+
+    .line-name {
+      font-weight: 700;
+      margin-bottom: 1px;
       font-size: 10px;
     }
-    .col-stt { width: 30px; text-align: center; }
-    .col-name { width: auto; }
-    .col-unitprice { width: 72px; text-align: right; white-space: nowrap; }
-    .col-qty { width: 50px; text-align: right; white-space: nowrap; }
-    .col-unit { width: 48px; text-align: center; white-space: nowrap; }
-    .col-total { width: 88px; text-align: right; white-space: nowrap; font-weight: 700; }
-    .line-name { font-weight: 700; margin-bottom: 1px; }
+
     .line-note {
-      font-size: 9px;
-      line-height: 1.25;
+      font-size: 8px;
+      line-height: 1.15;
       color: #6b7280;
       white-space: pre-line;
     }
+
     .summary-box {
-      border: 1.5px solid #111827;
+      border: 1.4px solid #111827;
       border-top: none;
-      padding: 6px 8px;
+      padding: 5px 7px;
       margin-top: 0;
     }
+
     .summary-row {
       display: flex;
       justify-content: space-between;
       align-items: center;
       gap: 12px;
-      font-size: 12px;
+      font-size: 11px;
       font-weight: 800;
     }
+
     .summary-value {
-      font-size: 15px;
+      font-size: 14px;
       font-weight: 800;
     }
+
     .footer-wrap {
       display: grid;
-      grid-template-columns: 1.2fr 1fr;
-      gap: 14px;
-      margin-top: 8px;
+      grid-template-columns: 1.1fr 1fr;
+      gap: 10px;
+      margin-top: 6px;
       align-items: start;
     }
+
     .footer-note {
-      font-size: 9px;
+      font-size: 8px;
       color: #4b5563;
-      line-height: 1.35;
+      line-height: 1.25;
     }
+
     .sign-row {
       display: grid;
       grid-template-columns: 1fr 1fr;
-      gap: 18px;
+      gap: 12px;
       text-align: center;
-      font-size: 10px;
+      font-size: 9px;
     }
+
     .sign-title {
       font-weight: 700;
-      margin-bottom: 28px;
+      margin-bottom: 20px;
     }
+
     @media print {
       .toolbar { display: none; }
       body {
@@ -631,7 +690,7 @@
     <button onclick="window.close()">✖ Đóng</button>
   </div>
 
-  <div class="page">
+  <div class="print-sheet">
     <div class="doc-header">
       <div class="doc-title">${escapeHtml(title || BRAND.title)}</div>
       ${code ? `<div class="invoice-code">Mã hóa đơn: ${escapeHtml(code)}</div>` : ""}
@@ -688,7 +747,7 @@
 
     <div class="footer-wrap">
       <div class="footer-note">
-        Ghi chú: Điện/nước được ghi ngắn gọn để hóa đơn gọn hơn nhưng vẫn đủ đối chiếu số cũ, số mới và lượng dùng.
+        Ghi chú: Điện/nước ghi ngắn gọn để hóa đơn gọn hơn nhưng vẫn đủ đối chiếu số cũ, số mới và lượng dùng.
       </div>
 
       <div class="sign-row">
@@ -708,19 +767,6 @@
     `.trim();
   }
 
-  function extractHeadStyle(html) {
-    const m = String(html || "").match(/<style[^>]*>([\s\S]*?)<\/style>/i);
-    return m ? m[1] : "";
-  }
-
-  function extractBodyContent(html) {
-    const bodyMatch = String(html || "").match(/<body[^>]*>([\s\S]*?)<\/body>/i);
-    let body = bodyMatch ? bodyMatch[1] : String(html || "");
-
-    body = body.replace(/<div class="toolbar"[\s\S]*?<\/div>/i, "");
-    return body.trim();
-  }
-
   function buildBatchCombinedHtml(invoices) {
     const firstHtml = invoices.find((inv) => inv?.printHtml)?.printHtml || "";
     const invoiceStyle = extractHeadStyle(firstHtml);
@@ -735,7 +781,7 @@
 
         return `
           <div class="batch-invoice-page">
-            <div class="page">
+            <div class="print-sheet">
               <div style="padding:10mm; font-family:Arial,sans-serif;">
                 <h2 style="text-align:center; margin:0 0 10px 0;">${escapeHtml(inv.title || BRAND.title)}</h2>
                 <div><b>Phòng:</b> ${escapeHtml(inv.roomNumber)}</div>
@@ -758,7 +804,10 @@
   <style>
     ${invoiceStyle}
 
-    @page { size: A5 landscape; margin: 7mm; }
+    @page {
+      size: A4 portrait;
+      margin: 0;
+    }
 
     html, body {
       margin: 0;
@@ -955,7 +1004,12 @@
       .join("");
 
     const style = document.createElement("style");
-    style.textContent = extractHeadStyle(invoices.find((x) => x?.printHtml)?.printHtml || "");
+    style.textContent =
+      (extractHeadStyle(invoices.find((x) => x?.printHtml)?.printHtml || "") || "") +
+      `
+      @page { size: A4 portrait; margin: 0; }
+      html, body { margin:0; padding:0; background:#fff; }
+    `;
     wrapper.prepend(style);
 
     document.body.appendChild(wrapper);
@@ -968,7 +1022,7 @@
           filename: `hoa-don-phong-tro-${todayISO()}.pdf`,
           image: { type: "jpeg", quality: 0.98 },
           html2canvas: { scale: 2, useCORS: true },
-          jsPDF: { unit: "mm", format: "a5", orientation: "landscape" },
+          jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
           pagebreak: { mode: ["css", "legacy"] },
         })
         .from(wrapper)
@@ -1231,35 +1285,71 @@
   function buildSummarySheetHtml({ appState, fromDate, toDate }) {
     const rooms = getAllRooms(appState);
 
+    const draftMap = new Map();
     const costColumns = [];
     const seen = new Set();
 
+    function addCostColumn(name) {
+      const clean = String(name || "").trim();
+      if (!clean) return;
+      const key = normalizeText(clean);
+      if (
+        key.includes("dien") ||
+        key.includes("điện") ||
+        key.includes("nuoc") ||
+        key.includes("nước") ||
+        key === normalizeText("Tiền phòng")
+      ) {
+        return;
+      }
+      if (!seen.has(key)) {
+        seen.add(key);
+        costColumns.push(clean);
+      }
+    }
+
     rooms.forEach((room) => {
+      if (isRoomOccupied(room)) {
+        const tenantName = getFirstTenantName(room);
+        const draft = buildInvoiceDraft(
+          room,
+          appState,
+          fromDate,
+          toDate,
+          tenantName,
+          `Hóa đơn phòng ${room.number} từ ${fromDate} đến ${toDate}`
+        );
+        draftMap.set(String(room.number), draft);
+
+        draft.lines.forEach((line) => {
+          if (line.type === "electricity" || line.type === "water") return;
+          if (normalizeText(line.name) === normalizeText("Tiền phòng")) return;
+          addCostColumn(line.name);
+        });
+      }
+
       const items = Array.isArray(room.costItems) ? room.costItems : [];
-      items.forEach((ci) => {
-        const name = String(ci?.name || "").trim();
-        if (!name) return;
-
-        const n = normalizeText(name);
-        if (
-          n.includes("dien") ||
-          n.includes("điện") ||
-          n.includes("nuoc") ||
-          n.includes("nước")
-        ) {
-          return;
-        }
-
-        if (!seen.has(name)) {
-          seen.add(name);
-          costColumns.push(name);
-        }
-      });
+      items.forEach((ci) => addCostColumn(ci?.name));
     });
 
-    const headerExtra = costColumns
-      .map((name) => `<th style="min-width:90px;">${escapeHtml(name)}</th>`)
-      .join("");
+    const headerExtra = `
+      <th rowspan="2" style="min-width:90px;">Tiền phòng</th>
+      ${costColumns.map((name) => `<th rowspan="2" style="min-width:90px;">${escapeHtml(name)}</th>`).join("")}
+    `;
+
+    const totals = {
+      elecOld: 0,
+      elecNew: 0,
+      elecUsed: 0,
+      elecMoney: 0,
+      waterOld: 0,
+      waterNew: 0,
+      waterUsed: 0,
+      waterMoney: 0,
+      roomMoney: 0,
+      extras: Object.fromEntries(costColumns.map((c) => [c, 0])),
+      grand: 0,
+    };
 
     const rows = rooms
       .map((room, idx) => {
@@ -1284,19 +1374,13 @@
           total: occupied ? 0 : "",
         };
 
+        let roomFee = "";
         let extraCells = costColumns.map(() => `<td class="num"></td>`).join("");
         let total = "";
         let note = occupied ? "" : "PHÒNG TRỐNG";
 
         if (occupied) {
-          const draft = buildInvoiceDraft(
-            room,
-            appState,
-            fromDate,
-            toDate,
-            tenantName,
-            `Hóa đơn phòng ${room.number} từ ${fromDate} đến ${toDate}`
-          );
+          const draft = draftMap.get(String(room.number));
 
           elecLine =
             draft.lines.find((x) => x.type === "electricity") || {
@@ -1314,6 +1398,9 @@
               total: 0,
             };
 
+          const roomLine =
+            draft.lines.find((line) => normalizeText(line.name) === normalizeText("Tiền phòng")) || null;
+
           const otherMap = {};
           draft.lines.forEach((line) => {
             if (line.type === "electricity" || line.type === "water") return;
@@ -1321,11 +1408,33 @@
             otherMap[line.name] = Number(line.total || line.amount || 0);
           });
 
+          roomFee = fmtMoney(roomLine?.total || roomLine?.amount || 0);
+
           extraCells = costColumns
             .map((name) => `<td class="num">${fmtMoney(otherMap[name] || 0)}</td>`)
             .join("");
 
           total = fmtMoney(
+            draft.lines.reduce((s, l) => s + Number(l.total || l.amount || 0), 0)
+          );
+
+          totals.elecOld += Number(elecLine.oldReading || 0);
+          totals.elecNew += Number(elecLine.newReading || 0);
+          totals.elecUsed += Number(elecLine.used || 0);
+          totals.elecMoney += Number(elecLine.total || 0);
+
+          totals.waterOld += Number(waterLine.oldReading || 0);
+          totals.waterNew += Number(waterLine.newReading || 0);
+          totals.waterUsed += Number(waterLine.used || 0);
+          totals.waterMoney += Number(waterLine.total || 0);
+
+          totals.roomMoney += Number(roomLine?.total || roomLine?.amount || 0);
+
+          costColumns.forEach((name) => {
+            totals.extras[name] += Number(otherMap[name] || 0);
+          });
+
+          totals.grand += Number(
             draft.lines.reduce((s, l) => s + Number(l.total || l.amount || 0), 0)
           );
         }
@@ -1346,6 +1455,7 @@
             <td class="num">${waterLine.used ?? ""}</td>
             <td class="num">${waterLine.total !== "" ? fmtMoney(waterLine.total || 0) : ""}</td>
 
+            <td class="num">${roomFee}</td>
             ${extraCells}
             <td class="num"><b>${total}</b></td>
             <td>${escapeHtml(note)}</td>
@@ -1353,6 +1463,27 @@
         `;
       })
       .join("");
+
+    const totalRow = `
+      <tr style="background:#f8fafc; font-weight:700;">
+        <td colspan="3" style="text-align:center;"><b>TỔNG</b></td>
+
+        <td class="num">${fmtMoney(totals.elecOld)}</td>
+        <td class="num">${fmtMoney(totals.elecNew)}</td>
+        <td class="num">${fmtMoney(totals.elecUsed)}</td>
+        <td class="num">${fmtMoney(totals.elecMoney)}</td>
+
+        <td class="num">${fmtMoney(totals.waterOld)}</td>
+        <td class="num">${fmtMoney(totals.waterNew)}</td>
+        <td class="num">${fmtMoney(totals.waterUsed)}</td>
+        <td class="num">${fmtMoney(totals.waterMoney)}</td>
+
+        <td class="num">${fmtMoney(totals.roomMoney)}</td>
+        ${costColumns.map((name) => `<td class="num">${fmtMoney(totals.extras[name] || 0)}</td>`).join("")}
+        <td class="num"><b>${fmtMoney(totals.grand)}</b></td>
+        <td></td>
+      </tr>
+    `;
 
     const title = `PHIẾU TỔNG HỢP NHÀ TRỌ THIỆP MẾN ${getMonthTitleText(fromDate, toDate).toUpperCase()}`;
 
@@ -1467,12 +1598,11 @@
             <th class="small">Mới</th>
             <th class="small">Dùng</th>
             <th class="small">Thành tiền</th>
-
-            ${costColumns.map(() => `<th class="small">Tiền</th>`).join("")}
           </tr>
         </thead>
         <tbody>
           ${rows}
+          ${totalRow}
         </tbody>
       </table>
     </div>
