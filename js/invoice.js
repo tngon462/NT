@@ -708,24 +708,41 @@
     `.trim();
   }
 
+  function extractHeadStyle(html) {
+    const m = String(html || "").match(/<style[^>]*>([\s\S]*?)<\/style>/i);
+    return m ? m[1] : "";
+  }
+
+  function extractBodyContent(html) {
+    const bodyMatch = String(html || "").match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+    let body = bodyMatch ? bodyMatch[1] : String(html || "");
+
+    body = body.replace(/<div class="toolbar"[\s\S]*?<\/div>/i, "");
+    return body.trim();
+  }
+
   function buildBatchCombinedHtml(invoices) {
+    const firstHtml = invoices.find((inv) => inv?.printHtml)?.printHtml || "";
+    const invoiceStyle = extractHeadStyle(firstHtml);
+
     const pages = invoices
       .map((inv) => {
         const html = inv.printHtml && String(inv.printHtml).trim();
         if (html) {
-          const bodyMatch = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
-          const body = bodyMatch ? bodyMatch[1] : html;
-          return `<div class="page">${body}</div>`;
+          const body = extractBodyContent(html);
+          return `<div class="batch-invoice-page">${body}</div>`;
         }
 
         return `
-          <div class="page">
-            <div style="padding:10mm; font-family:Arial,sans-serif;">
-              <h2 style="text-align:center; margin:0 0 10px 0;">${escapeHtml(inv.title || BRAND.title)}</h2>
-              <div><b>Phòng:</b> ${escapeHtml(inv.roomNumber)}</div>
-              <div><b>Người thuê:</b> ${escapeHtml(inv.tenantName || "")}</div>
-              <div><b>Ngày tạo:</b> ${escapeHtml(inv.issueDate || "")}</div>
-              <div><b>Tổng tiền:</b> ${fmtMoney(inv.total || 0)} đ</div>
+          <div class="batch-invoice-page">
+            <div class="page">
+              <div style="padding:10mm; font-family:Arial,sans-serif;">
+                <h2 style="text-align:center; margin:0 0 10px 0;">${escapeHtml(inv.title || BRAND.title)}</h2>
+                <div><b>Phòng:</b> ${escapeHtml(inv.roomNumber)}</div>
+                <div><b>Người thuê:</b> ${escapeHtml(inv.tenantName || "")}</div>
+                <div><b>Ngày tạo:</b> ${escapeHtml(inv.issueDate || "")}</div>
+                <div><b>Tổng tiền:</b> ${fmtMoney(inv.total || 0)} đ</div>
+              </div>
             </div>
           </div>
         `;
@@ -739,26 +756,66 @@
   <meta charset="utf-8"/>
   <title>Toàn bộ hóa đơn</title>
   <style>
+    ${invoiceStyle}
+
     @page { size: A5 landscape; margin: 7mm; }
-    body { margin:0; font-family: Arial, sans-serif; }
-    .toolbar {
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: #fff;
+      font-family: Arial, sans-serif;
+    }
+
+    .batch-toolbar {
       position: sticky;
       top: 0;
       background: #fff;
       z-index: 9999;
       border-bottom: 1px solid #ddd;
       padding: 8px;
-      display:flex;
-      gap:8px;
+      display: flex;
+      gap: 8px;
     }
-    .toolbar button { padding: 6px 10px; cursor:pointer; }
-    .page { page-break-after: always; }
-    .page:last-child { page-break-after: auto; }
-    @media print { .toolbar { display:none; } }
+
+    .batch-toolbar button {
+      padding: 6px 10px;
+      cursor: pointer;
+      border: 1px solid #cbd5e1;
+      background: #f8fafc;
+      border-radius: 6px;
+    }
+
+    .batch-invoice-page {
+      page-break-after: always;
+      break-after: page;
+    }
+
+    .batch-invoice-page:last-child {
+      page-break-after: auto;
+      break-after: auto;
+    }
+
+    .batch-invoice-page .toolbar {
+      display: none !important;
+    }
+
+    @media print {
+      .batch-toolbar {
+        display: none !important;
+      }
+      .batch-invoice-page .toolbar {
+        display: none !important;
+      }
+      body {
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }
+    }
   </style>
 </head>
 <body>
-  <div class="toolbar">
+  <div class="batch-toolbar">
     <button onclick="window.print()">🖨 In / Save PDF</button>
     <button onclick="window.close()">✖ Đóng</button>
   </div>
@@ -885,8 +942,7 @@
       .map((inv) => {
         const html = inv.printHtml && String(inv.printHtml).trim();
         if (html) {
-          const bodyMatch = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
-          const body = bodyMatch ? bodyMatch[1] : html;
+          const body = extractBodyContent(html);
           return `<div style="page-break-after:always;">${body}</div>`;
         }
         return `<div style="page-break-after:always; padding:10mm; font-family:Arial,sans-serif;">
@@ -897,6 +953,10 @@
         </div>`;
       })
       .join("");
+
+    const style = document.createElement("style");
+    style.textContent = extractHeadStyle(invoices.find((x) => x?.printHtml)?.printHtml || "");
+    wrapper.prepend(style);
 
     document.body.appendChild(wrapper);
 
@@ -1007,20 +1067,20 @@
   }
 
   function buildAcceptanceSheetHtml({ appState, fromDate, toDate }) {
-  const rooms = getAllRooms(appState);
+    const rooms = getAllRooms(appState);
 
-  const rows = rooms
-    .map((room, idx) => {
-      const occupied = isRoomOccupied(room);
-      const tenantName = occupied ? getFirstTenantName(room) : "";
+    const rows = rooms
+      .map((room, idx) => {
+        const occupied = isRoomOccupied(room);
+        const tenantName = occupied ? getFirstTenantName(room) : "";
 
-      const elec = getMeterLineData(appState, "electricity", room.number, ymOf(toDate), toDate);
-      const water = getMeterLineData(appState, "water", room.number, ymOf(toDate), toDate);
+        const elec = getMeterLineData(appState, "electricity", room.number, ymOf(toDate), toDate);
+        const water = getMeterLineData(appState, "water", room.number, ymOf(toDate), toDate);
 
-      const rowClass = occupied ? "" : "room-empty";
-      const roomNote = occupied ? "" : "PHÒNG TRỐNG";
+        const rowClass = occupied ? "" : "room-empty";
+        const roomNote = occupied ? "" : "PHÒNG TRỐNG";
 
-      return `
+        return `
           <tr class="${rowClass}">
             <td>${idx + 1}</td>
             <td><b>${escapeHtml(room.number)}</b></td>
@@ -1032,12 +1092,12 @@
             <td>${escapeHtml(roomNote)}</td>
           </tr>
         `;
-    })
-    .join("");
+      })
+      .join("");
 
-  const title = `PHIẾU CHỐT SỐ ĐIỆN NƯỚC NHÀ TRỌ THIỆP MẾN ${getMonthTitleText(fromDate, toDate).toUpperCase()}`;
+    const title = `PHIẾU CHỐT SỐ ĐIỆN NƯỚC NHÀ TRỌ THIỆP MẾN ${getMonthTitleText(fromDate, toDate).toUpperCase()}`;
 
-  return `
+    return `
 <!doctype html>
 <html>
 <head>
@@ -1165,112 +1225,112 @@
   </div>
 </body>
 </html>
-  `.trim();
-}
+    `.trim();
+  }
 
   function buildSummarySheetHtml({ appState, fromDate, toDate }) {
-  const rooms = getAllRooms(appState);
+    const rooms = getAllRooms(appState);
 
-  const costColumns = [];
-  const seen = new Set();
+    const costColumns = [];
+    const seen = new Set();
 
-  rooms.forEach((room) => {
-    const items = Array.isArray(room.costItems) ? room.costItems : [];
-    items.forEach((ci) => {
-      const name = String(ci?.name || "").trim();
-      if (!name) return;
+    rooms.forEach((room) => {
+      const items = Array.isArray(room.costItems) ? room.costItems : [];
+      items.forEach((ci) => {
+        const name = String(ci?.name || "").trim();
+        if (!name) return;
 
-      const n = normalizeText(name);
-      if (
-        n.includes("dien") ||
-        n.includes("điện") ||
-        n.includes("nuoc") ||
-        n.includes("nước")
-      ) {
-        return;
-      }
+        const n = normalizeText(name);
+        if (
+          n.includes("dien") ||
+          n.includes("điện") ||
+          n.includes("nuoc") ||
+          n.includes("nước")
+        ) {
+          return;
+        }
 
-      if (!seen.has(name)) {
-        seen.add(name);
-        costColumns.push(name);
-      }
+        if (!seen.has(name)) {
+          seen.add(name);
+          costColumns.push(name);
+        }
+      });
     });
-  });
 
-  const headerExtra = costColumns
-    .map((name) => `<th style="min-width:90px;">${escapeHtml(name)}</th>`)
-    .join("");
+    const headerExtra = costColumns
+      .map((name) => `<th style="min-width:90px;">${escapeHtml(name)}</th>`)
+      .join("");
 
-  const rows = rooms
-    .map((room, idx) => {
-      const occupied = isRoomOccupied(room);
-      const tenantName = occupied ? getFirstTenantName(room) : "";
-      const rowClass = occupied ? "" : "room-empty";
+    const rows = rooms
+      .map((room, idx) => {
+        const occupied = isRoomOccupied(room);
+        const tenantName = occupied ? getFirstTenantName(room) : "";
+        const rowClass = occupied ? "" : "room-empty";
 
-      const elecMeter = getMeterLineData(appState, "electricity", room.number, ymOf(toDate), toDate);
-      const waterMeter = getMeterLineData(appState, "water", room.number, ymOf(toDate), toDate);
+        const elecMeter = getMeterLineData(appState, "electricity", room.number, ymOf(toDate), toDate);
+        const waterMeter = getMeterLineData(appState, "water", room.number, ymOf(toDate), toDate);
 
-      let elecLine = {
-        oldReading: elecMeter.prev,
-        newReading: occupied ? elecMeter.curr : "",
-        used: occupied ? elecMeter.used : "",
-        total: occupied ? 0 : "",
-      };
+        let elecLine = {
+          oldReading: elecMeter.prev,
+          newReading: occupied ? elecMeter.curr : "",
+          used: occupied ? elecMeter.used : "",
+          total: occupied ? 0 : "",
+        };
 
-      let waterLine = {
-        oldReading: waterMeter.prev,
-        newReading: occupied ? waterMeter.curr : "",
-        used: occupied ? waterMeter.used : "",
-        total: occupied ? 0 : "",
-      };
+        let waterLine = {
+          oldReading: waterMeter.prev,
+          newReading: occupied ? waterMeter.curr : "",
+          used: occupied ? waterMeter.used : "",
+          total: occupied ? 0 : "",
+        };
 
-      let extraCells = costColumns.map(() => `<td class="num"></td>`).join("");
-      let total = "";
-      let note = occupied ? "" : "PHÒNG TRỐNG";
+        let extraCells = costColumns.map(() => `<td class="num"></td>`).join("");
+        let total = "";
+        let note = occupied ? "" : "PHÒNG TRỐNG";
 
-      if (occupied) {
-        const draft = buildInvoiceDraft(
-          room,
-          appState,
-          fromDate,
-          toDate,
-          tenantName,
-          `Hóa đơn phòng ${room.number} từ ${fromDate} đến ${toDate}`
-        );
+        if (occupied) {
+          const draft = buildInvoiceDraft(
+            room,
+            appState,
+            fromDate,
+            toDate,
+            tenantName,
+            `Hóa đơn phòng ${room.number} từ ${fromDate} đến ${toDate}`
+          );
 
-        elecLine =
-          draft.lines.find((x) => x.type === "electricity") || {
-            oldReading: elecMeter.prev,
-            newReading: elecMeter.curr,
-            used: elecMeter.used,
-            total: 0,
-          };
+          elecLine =
+            draft.lines.find((x) => x.type === "electricity") || {
+              oldReading: elecMeter.prev,
+              newReading: elecMeter.curr,
+              used: elecMeter.used,
+              total: 0,
+            };
 
-        waterLine =
-          draft.lines.find((x) => x.type === "water") || {
-            oldReading: waterMeter.prev,
-            newReading: waterMeter.curr,
-            used: waterMeter.used,
-            total: 0,
-          };
+          waterLine =
+            draft.lines.find((x) => x.type === "water") || {
+              oldReading: waterMeter.prev,
+              newReading: waterMeter.curr,
+              used: waterMeter.used,
+              total: 0,
+            };
 
-        const otherMap = {};
-        draft.lines.forEach((line) => {
-          if (line.type === "electricity" || line.type === "water") return;
-          if (normalizeText(line.name) === normalizeText("Tiền phòng")) return;
-          otherMap[line.name] = Number(line.total || line.amount || 0);
-        });
+          const otherMap = {};
+          draft.lines.forEach((line) => {
+            if (line.type === "electricity" || line.type === "water") return;
+            if (normalizeText(line.name) === normalizeText("Tiền phòng")) return;
+            otherMap[line.name] = Number(line.total || line.amount || 0);
+          });
 
-        extraCells = costColumns
-          .map((name) => `<td class="num">${fmtMoney(otherMap[name] || 0)}</td>`)
-          .join("");
+          extraCells = costColumns
+            .map((name) => `<td class="num">${fmtMoney(otherMap[name] || 0)}</td>`)
+            .join("");
 
-        total = fmtMoney(
-          draft.lines.reduce((s, l) => s + Number(l.total || l.amount || 0), 0)
-        );
-      }
+          total = fmtMoney(
+            draft.lines.reduce((s, l) => s + Number(l.total || l.amount || 0), 0)
+          );
+        }
 
-      return `
+        return `
           <tr class="${rowClass}">
             <td>${idx + 1}</td>
             <td><b>${escapeHtml(room.number)}</b></td>
@@ -1291,12 +1351,12 @@
             <td>${escapeHtml(note)}</td>
           </tr>
         `;
-    })
-    .join("");
+      })
+      .join("");
 
-  const title = `PHIẾU TỔNG HỢP NHÀ TRỌ THIỆP MẾN ${getMonthTitleText(fromDate, toDate).toUpperCase()}`;
+    const title = `PHIẾU TỔNG HỢP NHÀ TRỌ THIỆP MẾN ${getMonthTitleText(fromDate, toDate).toUpperCase()}`;
 
-  return `
+    return `
 <!doctype html>
 <html>
 <head>
@@ -1419,8 +1479,8 @@
   </div>
 </body>
 </html>
-  `.trim();
-}
+    `.trim();
+  }
 
   function openInvoiceForRoom(roomNumber, appState) {
     ensureState(appState);
